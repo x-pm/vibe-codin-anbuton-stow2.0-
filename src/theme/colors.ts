@@ -1,0 +1,15 @@
+export const colors = {
+  bg: '#F9F7F2',
+  surface: '#FFFFFF',
+  text: '#111111',
+  textMuted: '#6B6B6B',
+  textLight: '#9A9A9A',
+  border: '#E8E6E1',
+  primary: '#000000',
+  onPrimary: '#FFFFFF',
+  danger: '#C62828',
+  gold: '#8B7355',
+  tagShopping: '#F5E6A8',
+  tagExpire: '#FAD4D4',
+  tagMaintain: '#E8E8E8',
+};

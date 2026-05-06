@@ -1,0 +1,57 @@
+diff --git a/node_modules/@expo/config-plugins/build/android/Paths.js b/node_modules/@expo/config-plugins/build/android/Paths.js
+index 6f7e55b..eae2d8f 100644
+--- a/node_modules/@expo/config-plugins/build/android/Paths.js
++++ b/node_modules/@expo/config-plugins/build/android/Paths.js
+@@ -63,11 +63,48 @@ function _modules() {
+ function _getRequireWildcardCache(e) { if ("function" != typeof WeakMap) return null; var r = new WeakMap(), t = new WeakMap(); return (_getRequireWildcardCache = function (e) { return e ? t : r; })(e); }
+ function _interopRequireWildcard(e, r) { if (!r && e && e.__esModule) return e; if (null === e || "object" != typeof e && "function" != typeof e) return { default: e }; var t = _getRequireWildcardCache(r); if (t && t.has(e)) return t.get(e); var n = { __proto__: null }, a = Object.defineProperty && Object.getOwnPropertyDescriptor; for (var u in e) if ("default" !== u && {}.hasOwnProperty.call(e, u)) { var i = a ? Object.getOwnPropertyDescriptor(e, u) : null; i && (i.get || i.set) ? Object.defineProperty(n, u, i) : n[u] = e[u]; } return n.default = e, t && t.set(e, n), n; }
+ function _interopRequireDefault(e) { return e && e.__esModule ? e : { default: e }; }
++function findNamedAndroidSourceFile(projectRoot, name) {
++  const fs = _fs().default;
++  const matches = [`${name}.java`, `${name}.kt`];
++  const baseDirs = [
++    path().join(projectRoot, 'android', 'app', 'src', 'main', 'java'),
++    path().join(projectRoot, 'android', 'app', 'src', 'main', 'kotlin')
++  ];
++  const walk = (dir) => {
++    if (!fs.existsSync(dir)) return undefined;
++    const entries = fs.readdirSync(dir, {
++      withFileTypes: true
++    });
++    for (const ent of entries) {
++      const full = path().join(dir, ent.name);
++      if (ent.isDirectory()) {
++        const hit = walk(full);
++        if (hit) return hit;
++      } else if (matches.includes(ent.name)) {
++        return full;
++      }
++    }
++    return undefined;
++  };
++  for (const base of baseDirs) {
++    const hit = walk(base);
++    if (hit) return path().normalize(hit);
++  }
++  return undefined;
++}
+ function getProjectFilePath(projectRoot, name) {
+-  const filePath = (0, _glob().globSync)(`android/app/src/main/java/**/${name}.@(java|kt)`, {
+-    cwd: projectRoot,
+-    absolute: true
+-  })[0];
++  /** 含中文等非 ASCII 的 Windows 路径上 `glob` 常匹配失败，故优先用 fs 遍历 `java/` 与 `kotlin/` */
++  let filePath = findNamedAndroidSourceFile(projectRoot, name);
++  if (!filePath) {
++    const patterns = [`android/app/src/main/java/**/${name}.@(java|kt)`, `android/app/src/main/kotlin/**/${name}.@(java|kt)`];
++    for (const pattern of patterns) {
++      filePath = (0, _glob().globSync)(pattern, {
++        cwd: projectRoot,
++        absolute: true
++      })[0];
++      if (filePath) break;
++    }
++  }
+   (0, _assert().default)(filePath, `Project file "${name}" does not exist in android project for root "${projectRoot}"`);
+   return filePath;
+ }

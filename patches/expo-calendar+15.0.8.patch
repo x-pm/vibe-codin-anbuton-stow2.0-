@@ -1,0 +1,14 @@
+diff --git a/node_modules/expo-calendar/ios/Requesters/CalendarPermissionsRequester.swift b/node_modules/expo-calendar/ios/Requesters/CalendarPermissionsRequester.swift
+index 8cffced..117fcdc 100644
+--- a/node_modules/expo-calendar/ios/Requesters/CalendarPermissionsRequester.swift
++++ b/node_modules/expo-calendar/ios/Requesters/CalendarPermissionsRequester.swift
+@@ -35,6 +35,9 @@ public class CalendarPermissionsRequester: NSObject, EXPermissionsRequester {
+       status = EXPermissionStatusDenied
+     case .notDetermined:
+       status = EXPermissionStatusUndetermined
++    case .authorized:
++      // iOS 16 及更早：授权成功为 `.authorized`。SDK 17 起新增 `.fullAccess`，仅匹配后者会导致旧系统永远拿不到 granted。
++      status = EXPermissionStatusGranted
+     case .fullAccess:
+       status = EXPermissionStatusGranted
+     @unknown default:

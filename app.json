@@ -1,0 +1,73 @@
+{
+  "expo": {
+    "name": "STOW",
+    "slug": "stow-expo",
+    "scheme": "stow",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": false,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.stow.archive",
+      "infoPlist": {
+        "NSCameraUsageDescription": "用于扫描条码、拍照识别物品，以便快速录入物品信息。",
+        "NSPhotoLibraryUsageDescription": "用于从相册选择物品照片并识别、录入。",
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCalendarsUsageDescription": "STOW 需要将计划提醒写入系统「日历」并在您设定的时间提醒您。",
+        "NSCalendarsFullAccessUsageDescription": "STOW 需要将计划提醒写入系统「日历」并在您设定的时间提醒您。请在系统弹窗中选择「完全访问」或允许写入日历。",
+        "NSRemindersUsageDescription": "STOW 在极少数情况下可能访问提醒事项相关能力。",
+        "NSRemindersFullAccessUsageDescription": "STOW 在极少数情况下可能访问提醒事项相关能力。"
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "softwareKeyboardLayoutMode": "resize",
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.READ_CALENDAR",
+        "android.permission.WRITE_CALENDAR",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_CALENDAR",
+        "android.permission.WRITE_CALENDAR",
+        "android.permission.RECORD_AUDIO"
+      ],
+      "package": "app.stow.archive"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "允许访问相册以选择物品照片并进行识别录入。"
+        }
+      ],
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "STOW 需要访问日历时，将待办提醒同步为系统日历中的日程，以便在指定时间提醒。",
+          "remindersPermission": "STOW 若使用提醒相关能力，需要系统授权。"
+        }
+      ],
+      "@react-native-community/datetimepicker"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "7af27fb6-4887-463e-9869-624614fb3fc6"
+      }
+    }
+  }
+}
