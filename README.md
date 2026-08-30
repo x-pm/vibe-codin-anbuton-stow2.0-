@@ -12,7 +12,6 @@
 
 - **Node.js**：建议使用 **20 LTS** 或更高版本，与 Expo SDK 54 保持一致。
 - **包管理**：本项目使用 **npm**，并已包含 `package-lock.json`。
-- **移动端预览**：需安装 [Expo Go](https://expo.dev/go)（支持 Android / iOS）。
 
 ---
 
