@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { Animated, Easing, Image, StyleSheet, View } from 'react-native';
 import { SpringPressable } from './SpringPressable';
 
-const brandMark = require('../../assets/brand-mark.png');
+const appIcon = require('../../assets/icon.png');
 
 type Props = {
   /** 不传则不可点（仅展示） */
@@ -13,7 +13,7 @@ type Props = {
 };
 
 /**
- * 顶栏右上角品牌：正圆裁剪、纯黑底；黑底白标整图 `contain` 居中，图块黑底避免透明缝。
+ * 顶栏品牌圆标：新版「俺不囤」图标。
  */
 export function HeaderBrandMark({ onPress, shrink = 0.92, size = 40 }: Props) {
   const r = size / 2;
@@ -45,8 +45,8 @@ export function HeaderBrandMark({ onPress, shrink = 0.92, size = 40 }: Props) {
     <Animated.View style={{ transform: [{ scale: breathe }] }} collapsable={false}>
       <View style={[styles.disc, { width: size, height: size, borderRadius: r }]}>
         <Image
-          source={brandMark}
-          style={{ width: size, height: size, backgroundColor: '#000000' }}
+          source={appIcon}
+          style={{ width: size, height: size, backgroundColor: '#ffffff' }}
           resizeMode="contain"
         />
       </View>
@@ -67,7 +67,7 @@ export function HeaderBrandMark({ onPress, shrink = 0.92, size = 40 }: Props) {
 const styles = StyleSheet.create({
   wrap: { padding: 2 },
   disc: {
-    backgroundColor: '#000000',
+    backgroundColor: '#ffffff',
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',

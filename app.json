@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "STOW",
+    "name": "俺不囤",
     "slug": "stow-expo",
     "scheme": "stow",
     "version": "1.0.0",
@@ -16,14 +16,42 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "app.stow.archive",
+      "privacyManifests": {
+        "NSPrivacyTracking": false,
+        "NSPrivacyAccessedAPITypes": [
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
+            "NSPrivacyAccessedAPITypeReasons": [
+              "CA92.1"
+            ]
+          },
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryFileTimestamp",
+            "NSPrivacyAccessedAPITypeReasons": [
+              "C617.1",
+              "0A2A.1"
+            ]
+          },
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryDiskSpace",
+            "NSPrivacyAccessedAPITypeReasons": [
+              "E174.1",
+              "85F4.1"
+            ]
+          },
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategorySystemBootTime",
+            "NSPrivacyAccessedAPITypeReasons": [
+              "35F9.1"
+            ]
+          }
+        ]
+      },
       "infoPlist": {
-        "NSCameraUsageDescription": "用于扫描条码、拍照识别物品，以便快速录入物品信息。",
+        "NSCameraUsageDescription": "用于拍照识别物品，以便快速录入物品信息。",
         "NSPhotoLibraryUsageDescription": "用于从相册选择物品照片并识别、录入。",
         "ITSAppUsesNonExemptEncryption": false,
-        "NSCalendarsUsageDescription": "STOW 需要将计划提醒写入系统「日历」并在您设定的时间提醒您。",
-        "NSCalendarsFullAccessUsageDescription": "STOW 需要将计划提醒写入系统「日历」并在您设定的时间提醒您。请在系统弹窗中选择「完全访问」或允许写入日历。",
-        "NSRemindersUsageDescription": "STOW 在极少数情况下可能访问提醒事项相关能力。",
-        "NSRemindersFullAccessUsageDescription": "STOW 在极少数情况下可能访问提醒事项相关能力。"
+        "NSMicrophoneUsageDescription": "系统相机组件可能申请麦克风权限。当前版本仅用于拍照识别物品，不会录制声音。"
       }
     },
     "android": {
@@ -34,15 +62,11 @@
       "softwareKeyboardLayoutMode": "resize",
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
+      "package": "app.stow.archive",
       "permissions": [
-        "android.permission.READ_CALENDAR",
-        "android.permission.WRITE_CALENDAR",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.READ_CALENDAR",
-        "android.permission.WRITE_CALENDAR",
+        "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
-      ],
-      "package": "app.stow.archive"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -50,24 +74,25 @@
     "plugins": [
       "expo-font",
       [
+        "expo-camera",
+        {
+          "cameraPermission": "用于拍照识别物品，以便快速录入物品信息。",
+          "microphonePermission": "系统相机组件可能申请麦克风权限。当前版本仅用于拍照识别物品，不会录制声音。",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "允许访问相册以选择物品照片并进行识别录入。"
         }
-      ],
-      [
-        "expo-calendar",
-        {
-          "calendarPermission": "STOW 需要访问日历时，将待办提醒同步为系统日历中的日程，以便在指定时间提醒。",
-          "remindersPermission": "STOW 若使用提醒相关能力，需要系统授权。"
-        }
-      ],
-      "@react-native-community/datetimepicker"
+      ]
     ],
     "extra": {
       "eas": {
-        "projectId": "7af27fb6-4887-463e-9869-624614fb3fc6"
+        "projectId": "5cf221f7-507c-4536-99d6-0ce17abe0425"
       }
-    }
+    },
+    "owner": "wuhu666"
   }
 }

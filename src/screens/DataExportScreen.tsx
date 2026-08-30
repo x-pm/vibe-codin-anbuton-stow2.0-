@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SpringPressable } from '../components/SpringPressable';
+import { FormSheetBackground } from '../components/FormSheetBackground';
 import { useAppData } from '../context/DataContext';
 import type { RootStackParamList } from '../navigation/types';
 import { colors } from '../theme/colors';
@@ -51,11 +52,19 @@ export function DataExportScreen() {
       );
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {
-        await Sharing.shareAsync(uri, {
-          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          dialogTitle: '导出 Stow 数据',
-          UTI: 'org.openxmlformats.spreadsheetml.sheet',
-        });
+        try {
+          await Sharing.shareAsync(uri, {
+            mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            dialogTitle: '导出 Stow 数据',
+            UTI: 'org.openxmlformats.spreadsheetml.sheet',
+          });
+        } catch (shareErr) {
+          // 用户取消系统分享面板时部分机型会 reject，不当作导出失败
+          const msg = shareErr instanceof Error ? shareErr.message : String(shareErr);
+          if (!/cancel|dismiss|did not share|User did not share/i.test(msg)) {
+            throw shareErr;
+          }
+        }
       } else {
         Alert.alert('已生成文件', '当前环境无法打开系统分享，文件已保存在应用缓存目录。');
       }
@@ -69,9 +78,10 @@ export function DataExportScreen() {
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
+      <FormSheetBackground />
       <View style={styles.header}>
         <SpringPressable onPress={() => navigation.goBack()} style={styles.back} shrink={0.9}>
-          <Ionicons name="chevron-back" size={26} color={colors.text} />
+          <Ionicons name="chevron-back" size={26} color={colors.textOnGlass} />
         </SpringPressable>
         <Text style={styles.headerTitle}>数据导出/备份</Text>
         <View style={{ width: 40 }} />
@@ -96,7 +106,7 @@ export function DataExportScreen() {
             <Ionicons
               name={includeItems ? 'checkbox' : 'square-outline'}
               size={24}
-              color={includeItems ? colors.primary : colors.textMuted}
+              color={includeItems ? colors.primary : colors.textOnGlassMuted}
             />
             <View style={styles.optionTextWrap}>
               <Text style={styles.optionTitle}>我的物品</Text>
@@ -107,7 +117,7 @@ export function DataExportScreen() {
             <Ionicons
               name={includePlans ? 'checkbox' : 'square-outline'}
               size={24}
-              color={includePlans ? colors.primary : colors.textMuted}
+              color={includePlans ? colors.primary : colors.textOnGlassMuted}
             />
             <View style={styles.optionTextWrap}>
               <Text style={styles.optionTitle}>物品计划</Text>
@@ -118,7 +128,7 @@ export function DataExportScreen() {
 
         <Text style={styles.sectionLabel}>导出格式</Text>
         <View style={styles.formatChip}>
-          <Ionicons name="document-text-outline" size={20} color={colors.text} />
+          <Ionicons name="document-text-outline" size={20} color={colors.textOnGlass} />
           <Text style={styles.formatChipText}>Microsoft Excel（.xlsx）</Text>
         </View>
 
@@ -143,7 +153,7 @@ export function DataExportScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg },
+  root: { flex: 1, backgroundColor: 'transparent' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -151,30 +161,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
+    borderBottomColor: 'rgba(58, 74, 90, 0.18)',
   },
   back: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { fontSize: 17, fontFamily: fonts.extraBold, color: colors.text },
+  headerTitle: { fontSize: 17, fontFamily: fonts.extraBold, color: colors.textOnGlass },
   scroll: { paddingHorizontal: 24, paddingTop: 20 },
   intro: {
     fontSize: 15,
-    color: colors.textMuted,
+    color: colors.textOnGlassMuted,
     lineHeight: 24,
     marginBottom: 24,
   },
-  mono: { fontFamily: fonts.bold, color: colors.text },
+  mono: { fontFamily: fonts.bold, color: colors.textOnGlass },
   sectionLabel: {
     fontSize: 13,
     fontFamily: fonts.bold,
-    color: colors.textMuted,
+    color: colors.textOnGlassMuted,
     marginBottom: 10,
     letterSpacing: 0.3,
   },
   card: {
-    backgroundColor: colors.surface,
+    backgroundColor: 'rgba(255,255,255,0.55)',
     borderRadius: radius.surface,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: 'rgba(58, 74, 90, 0.16)',
     overflow: 'hidden',
     marginBottom: 22,
   },
@@ -187,25 +197,25 @@ const styles = StyleSheet.create({
   },
   optionRowBorder: {
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
+    borderBottomColor: 'rgba(58, 74, 90, 0.12)',
   },
   optionTextWrap: { flex: 1 },
-  optionTitle: { fontSize: 16, fontFamily: fonts.bold, color: colors.text },
-  optionSub: { marginTop: 4, fontSize: 13, color: colors.textLight },
+  optionTitle: { fontSize: 16, fontFamily: fonts.bold, color: colors.textOnGlass },
+  optionSub: { marginTop: 4, fontSize: 13, color: colors.textOnGlassMuted },
   formatChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     alignSelf: 'flex-start',
-    backgroundColor: colors.surface,
+    backgroundColor: 'rgba(255,255,255,0.55)',
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: radius.surface,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: 'rgba(58, 74, 90, 0.16)',
     marginBottom: 28,
   },
-  formatChipText: { fontSize: 14, fontFamily: fonts.semiBold, color: colors.text },
+  formatChipText: { fontSize: 14, fontFamily: fonts.semiBold, color: colors.textOnGlass },
   exportBtn: {
     flexDirection: 'row',
     alignItems: 'center',

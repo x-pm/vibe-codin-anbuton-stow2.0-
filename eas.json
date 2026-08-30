@@ -12,10 +12,19 @@
       "distribution": "internal"
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_CLOUDBASE_ENV_ID": "stow-app-d2gy83vihd1e932bb",
+        "EXPO_PUBLIC_CLOUDBASE_FUNCTION_NAME": "stowyun",
+        "EXPO_PUBLIC_CLOUDBASE_SYNC_FUNCTION": "stowSync"
+      }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "ascAppId": "6802397132"
+      }
+    }
   }
 }

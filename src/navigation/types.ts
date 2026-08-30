@@ -2,7 +2,7 @@ import type { ItemFormPreset } from '../types/models';
 
 export type RootStackParamList = {
   MainTabs: undefined;
-  InventoryGroup: { groupName: string };
+  InventoryGroup: { groupName: string; mode?: 'group' | 'room' | 'equipment' };
   ItemDetail: {
     itemId: string;
     openInEditMode?: boolean;
@@ -16,7 +16,9 @@ export type RootStackParamList = {
   DataExport: undefined;
   About: undefined;
   Help: undefined;
+  PrivacyPolicy: undefined;
   EditProfile: undefined;
+  AuthLogin: { fromLogout?: boolean } | undefined;
 };
 
 export type MainTabParamList = {

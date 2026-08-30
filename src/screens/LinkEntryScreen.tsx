@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SpringPressable } from '../components/SpringPressable';
 import { safeLeaveToPreviousOrHome } from '../navigation/safeNavigate';
 import type { RootStackParamList } from '../navigation/types';
+import { confirmAiProcessingIfNeeded } from '../services/aiConsent';
 import {
   isSiliconflowConfigured,
   parseItemFieldsFromText,
@@ -30,10 +31,12 @@ import {
   isObviousUiArtifactProductName,
   pickHeroProductImage,
 } from '../services/linkMetaExtract';
+import type { ItemFormPreset } from '../types/models';
+import { enrichPresetWithEstimatedLocation } from '../utils/estimateStorageRoom';
+import { doneReturnKeyProps } from '../utils/inputKeyboard';
 import { colors } from '../theme/colors';
 import { fonts } from '../theme/fonts';
 import { radius } from '../theme/radius';
-import type { ItemFormPreset } from '../types/models';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
@@ -49,6 +52,10 @@ export function LinkEntryScreen() {
     if (!url.trim()) {
       Alert.alert('提示', '请先粘贴物品链接。');
       return;
+    }
+    if (isSiliconflowConfigured()) {
+      const agreed = await confirmAiProcessingIfNeeded();
+      if (!agreed) return;
     }
     setLoading(true);
     try {
@@ -137,7 +144,7 @@ export function LinkEntryScreen() {
         return;
       }
 
-      navigation.replace('AddItem', { preset });
+      navigation.replace('AddItem', { preset: enrichPresetWithEstimatedLocation(preset) });
     } catch (e) {
       const msg = e instanceof Error ? e.message : '解析失败';
       Alert.alert('提示', msg, [{ text: '确定' }]);
@@ -159,12 +166,13 @@ export function LinkEntryScreen() {
           <TextInput
             style={styles.input}
             placeholder={PLACEHOLDER}
-            placeholderTextColor={colors.textLight}
+            placeholderTextColor={colors.modalCardMuted}
             value={url}
             onChangeText={setUrl}
             multiline
             textAlignVertical="top"
             editable={!loading}
+            {...doneReturnKeyProps}
           />
           <SpringPressable
             style={[styles.confirmBtn, loading && styles.confirmBtnDisabled]}
@@ -188,26 +196,24 @@ const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: 'transparent' },
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: 'rgba(0,0,0,0.55)',
     justifyContent: 'center',
     paddingHorizontal: 28,
   },
   card: {
-    backgroundColor: colors.surface,
+    backgroundColor: colors.modalCardBg,
     borderRadius: radius.surface,
     padding: 18,
-    borderWidth: 1,
-    borderColor: colors.border,
   },
   input: {
     minHeight: 100,
-    backgroundColor: colors.bg,
+    backgroundColor: '#fff',
     borderRadius: radius.surface,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: 'rgba(58, 74, 90, 0.18)',
     padding: 14,
     fontSize: 15,
-    color: colors.text,
+    color: colors.modalCardText,
     marginBottom: 16,
   },
   confirmBtn: {

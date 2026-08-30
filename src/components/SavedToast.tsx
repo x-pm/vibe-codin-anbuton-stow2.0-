@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
+import { playSaveSuccess } from '../services/sfx';
 import { colors } from '../theme/colors';
 import { fonts } from '../theme/fonts';
 
@@ -22,6 +23,7 @@ export function SavedToast({ visible, onHidden, message = '已保存' }: Props) 
   useEffect(() => {
     if (!visible) return;
 
+    playSaveSuccess();
     opacity.setValue(0);
     translateY.setValue(16);
 

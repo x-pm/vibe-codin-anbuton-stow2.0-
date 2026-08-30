@@ -58,7 +58,7 @@ export function InventorySearchAnimatedIcon({ size = 18 }: Props) {
   return (
     <View style={styles.wrap} accessibilityRole="image" accessibilityLabel="搜索">
       <Animated.View style={[styles.inner, { transform: [{ scale }, { rotate }] }]}>
-        <Ionicons name="search-outline" size={size} color={colors.textLight} />
+        <Ionicons name="search-outline" size={size} color={colors.textOnGlassMuted} />
       </Animated.View>
     </View>
   );

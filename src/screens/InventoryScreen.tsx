@@ -5,7 +5,6 @@ import {
   Animated,
   Easing,
   FlatList,
-  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -19,11 +18,13 @@ import { useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DoodleCatInline } from '../components/DoodleCatInline';
 import { EasePressable } from '../components/EasePressable';
-import { HeaderBrandMark } from '../components/HeaderBrandMark';
 import { HeaderMenuOutlineButton } from '../components/HeaderMenuOutlineButton';
 import { InventoryLayersAnimatedIcon } from '../components/InventoryLayersAnimatedIcon';
 import { InventorySearchAnimatedIcon } from '../components/InventorySearchAnimatedIcon';
+import { GlassSurface } from '../components/GlassSurface';
+import { SoftCircleThumb } from '../components/SoftCircleThumb';
 import { SpringPressable } from '../components/SpringPressable';
+import { useRequireCloudLogin } from '../context/AuthContext';
 import { useAppData } from '../context/DataContext';
 import { useInventoryBulkTab } from '../context/InventoryBulkTabContext';
 import { useTabWithStackNavigation, type TabWithStackNav } from '../navigation/hooks';
@@ -32,8 +33,50 @@ import { colors } from '../theme/colors';
 import { fonts } from '../theme/fonts';
 import { radius } from '../theme/radius';
 import { itemDisplayGroup } from '../utils/itemGroup';
+import { dismissKeyboard, doneReturnKeyProps, searchReturnKeyProps } from '../utils/inputKeyboard';
+import { playNavTap } from '../services/sfx';
+import {
+  resolveItemStorageEquipment,
+  resolveItemStorageRoom,
+  UNSET_STORAGE_EQUIPMENT,
+  UNSET_STORAGE_ROOM,
+} from '../utils/itemStorageRoom';
+import {
+  filterItemsByBroadSearch,
+  filterItemsByItemKeyword,
+  itemMatchesItemKeyword,
+} from '../utils/inventorySearch';
 
-type FilterKey = 'all' | 'group' | 'recent';
+/** 物品列表筛选/排序（括号内为内部含义） */
+type InventoryViewMode =
+  | 'default' // 默认：按编号从小到大
+  | 'time_desc' // 按时间顺序：降序（新→旧）
+  | 'time_asc' // 按时间顺序：升序（旧→新）
+  | 'by_group' // 按物品分组
+  | 'by_room' // 按房间（一级存储位置）
+  | 'by_equipment'; // 按位置分组（二级储物设备）
+
+const VIEW_MODE_OPTIONS: { key: InventoryViewMode; label: string }[] = [
+  { key: 'default', label: '默认' },
+  { key: 'time_desc', label: '按时间 · 新→旧' },
+  { key: 'time_asc', label: '按时间 · 旧→新' },
+  { key: 'by_group', label: '按物品分组' },
+  { key: 'by_room', label: '按房间' },
+  { key: 'by_equipment', label: '按位置分组' },
+];
+
+/** 底部导航栏内容区高度（不含安全区），用于把 + 按钮抬到导航上方 */
+const MAIN_TAB_BAR_CONTENT_HEIGHT = 64;
+
+function viewModeLabel(mode: InventoryViewMode): string {
+  return VIEW_MODE_OPTIONS.find((o) => o.key === mode)?.label ?? '默认';
+}
+
+/** 录入 id 多为时间戳字符串，用作时间排序 */
+function itemCreatedMs(item: InventoryItem): number {
+  const n = Number(item.id);
+  return Number.isFinite(n) ? n : 0;
+}
 
 const SEARCH_FADE_DEBOUNCE_MS = 220;
 const LIST_CONTENT_FADE_MS = 520;
@@ -48,6 +91,7 @@ function InventoryFabCluster({
   navigation: TabWithStackNav;
   hidden?: boolean;
 }) {
+  const requireCloudLogin = useRequireCloudLogin();
   const [open, setOpen] = useState(false);
   const a0 = useRef(new Animated.Value(0)).current;
   const a1 = useRef(new Animated.Value(0)).current;
@@ -99,17 +143,29 @@ function InventoryFabCluster({
   const subs = [
     {
       icon: 'create-outline' as const,
-      onPress: () => runAndClose(() => navigation.navigate('AddItem', undefined)),
+      onPress: () =>
+        runAndClose(() => {
+          playNavTap();
+          requireCloudLogin(() => navigation.navigate('AddItem', undefined));
+        }),
       anim: a2,
     },
     {
       icon: 'link-outline' as const,
-      onPress: () => runAndClose(() => navigation.navigate('LinkEntry')),
+      onPress: () =>
+        runAndClose(() => {
+          playNavTap();
+          requireCloudLogin(() => navigation.navigate('LinkEntry'));
+        }),
       anim: a1,
     },
     {
       icon: 'camera-outline' as const,
-      onPress: () => runAndClose(() => navigation.navigate('ScanEntry')),
+      onPress: () =>
+        runAndClose(() => {
+          playNavTap();
+          requireCloudLogin(() => navigation.navigate('ScanEntry'));
+        }),
       anim: a0,
     },
   ];
@@ -139,6 +195,7 @@ function InventoryFabCluster({
                       : '手动录入'
                 }
               >
+                <GlassSurface pointerEvents="none" tint="surface" style={StyleSheet.absoluteFillObject} />
                 <Ionicons name={s.icon} size={22} color={colors.text} />
               </EasePressable>
             </Animated.View>
@@ -164,13 +221,28 @@ export function InventoryScreen() {
   const isFocused = useIsFocused();
   const { setPayload } = useInventoryBulkTab();
   const { width } = useWindowDimensions();
-  const { items, groups, removeItemsByIds, moveItemsToGroup, removeGroupsByName } = useAppData();
+  const {
+    items,
+    groups,
+    rooms,
+    storageEquipment,
+    addGroup,
+    addRoom,
+    removeItemsByIds,
+    moveItemsToGroup,
+    removeGroupsByName,
+  } = useAppData();
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<FilterKey>('all');
+  const [viewMode, setViewMode] = useState<InventoryViewMode>('default');
+  const [filterModalOpen, setFilterModalOpen] = useState(false);
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
   const [moveModalVisible, setMoveModalVisible] = useState(false);
+  /** 多选底栏「新建」：先选类型，再填名称 */
+  const [createPickOpen, setCreatePickOpen] = useState(false);
+  const [createNameKind, setCreateNameKind] = useState<'group' | 'location' | null>(null);
+  const [createNameInput, setCreateNameInput] = useState('');
 
   const [debouncedQuery, setDebouncedQuery] = useState(query);
   useEffect(() => {
@@ -195,12 +267,26 @@ export function InventoryScreen() {
     });
     anim.start();
     return () => anim.stop();
-  }, [filter, debouncedQuery, listContentOpacity]);
+  }, [viewMode, debouncedQuery, listContentOpacity]);
 
   useEffect(() => {
     setSelectedIds([]);
     setSelectedGroups([]);
-  }, [filter]);
+  }, [viewMode]);
+
+  const sectionListRef = useRef<FlatList<string>>(null);
+  const itemsListRef = useRef<FlatList<InventoryItem>>(null);
+
+  /** 切换筛选/排序后回到顶部，展示新顺序 */
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      sectionListRef.current?.scrollToOffset({ offset: 0, animated: false });
+      itemsListRef.current?.scrollToOffset({ offset: 0, animated: false });
+    });
+  }, [viewMode]);
+
+  const isSectionMode =
+    viewMode === 'by_group' || viewMode === 'by_room' || viewMode === 'by_equipment';
 
   const exitBulkMode = useCallback(() => {
     setBulkMode(false);
@@ -231,36 +317,81 @@ export function InventoryScreen() {
     return [...set].sort((a, b) => a.localeCompare(b, 'zh'));
   }, [items, groups]);
 
-  const filteredGroupNames = useMemo(() => {
-    if (!query.trim()) return groupNames;
-    const q = query.trim().toLowerCase();
-    return groupNames.filter((g) => g.toLowerCase().includes(q));
-  }, [groupNames, query]);
+  const roomNames = useMemo(() => {
+    const names = [...rooms];
+    const hasUnset = items.some((i) => resolveItemStorageRoom(i, rooms) === UNSET_STORAGE_ROOM);
+    if (hasUnset) names.push(UNSET_STORAGE_ROOM);
+    return names;
+  }, [rooms, items]);
+
+  const equipmentNames = useMemo(() => {
+    const names = [...storageEquipment];
+    const hasUnset = items.some(
+      (i) => resolveItemStorageEquipment(i, storageEquipment) === UNSET_STORAGE_EQUIPMENT
+    );
+    if (hasUnset) names.push(UNSET_STORAGE_EQUIPMENT);
+    return names;
+  }, [storageEquipment, items]);
+
+  const sectionNames = useMemo(() => {
+    if (viewMode === 'by_group') {
+      if (!query.trim()) return groupNames;
+      const q = query.trim().toLowerCase();
+      return groupNames.filter((g) => {
+        if (g.toLowerCase().includes(q)) return true;
+        return items.some(
+          (i) => itemDisplayGroup(i) === g && itemMatchesItemKeyword(i, q)
+        );
+      });
+    }
+    if (viewMode === 'by_room') {
+      if (!query.trim()) return roomNames;
+      const q = query.trim().toLowerCase();
+      return roomNames.filter((loc) => {
+        if (loc.toLowerCase().includes(q)) return true;
+        return items.some(
+          (i) =>
+            resolveItemStorageRoom(i, rooms) === loc && itemMatchesItemKeyword(i, q)
+        );
+      });
+    }
+    if (viewMode === 'by_equipment') {
+      if (!query.trim()) return equipmentNames;
+      const q = query.trim().toLowerCase();
+      return equipmentNames.filter((eq) => {
+        if (eq.toLowerCase().includes(q)) return true;
+        return items.some(
+          (i) =>
+            resolveItemStorageEquipment(i, storageEquipment) === eq &&
+            itemMatchesItemKeyword(i, q)
+        );
+      });
+    }
+    return groupNames;
+  }, [viewMode, roomNames, equipmentNames, groupNames, query, items, rooms, storageEquipment]);
 
   const filteredItems = useMemo(() => {
-    let list = items;
-    if (query.trim()) {
-      const q = query.trim().toLowerCase();
-      list = list.filter(
-        (i) =>
-          i.name.toLowerCase().includes(q) ||
-          i.category.toLowerCase().includes(q) ||
-          itemDisplayGroup(i).toLowerCase().includes(q) ||
-          (i.codeLabel && i.codeLabel.toLowerCase().includes(q))
+    if (viewMode === 'default') {
+      return filterItemsByBroadSearch(items, query, rooms).sort(
+        (a, b) => a.inventoryNumber - b.inventoryNumber
       );
     }
-    if (filter === 'all') {
-      list = [...list].sort((a, b) => a.inventoryNumber - b.inventoryNumber);
+    if (viewMode === 'time_desc') {
+      return filterItemsByItemKeyword(items, query).sort(
+        (a, b) => itemCreatedMs(b) - itemCreatedMs(a)
+      );
     }
-    if (filter === 'recent') {
-      list = [...list];
+    if (viewMode === 'time_asc') {
+      return filterItemsByItemKeyword(items, query).sort(
+        (a, b) => itemCreatedMs(a) - itemCreatedMs(b)
+      );
     }
-    return list;
-  }, [items, query, filter]);
+    return items;
+  }, [items, query, viewMode, rooms]);
 
   const allVisibleSelected = useMemo(() => {
-    if (filter === 'group') {
-      const names = filteredGroupNames;
+    if (isSectionMode) {
+      const names = sectionNames;
       return (
         names.length > 0 &&
         names.length === selectedGroups.length &&
@@ -273,25 +404,32 @@ export function InventoryScreen() {
       ids.length === selectedIds.length &&
       ids.every((id) => selectedIds.includes(id))
     );
-  }, [filter, filteredGroupNames, filteredItems, selectedGroups, selectedIds]);
+  }, [isSectionMode, sectionNames, filteredItems, selectedGroups, selectedIds]);
 
   const selectAllVisible = useCallback(() => {
     if (allVisibleSelected) {
-      if (filter === 'group') setSelectedGroups([]);
+      if (isSectionMode) setSelectedGroups([]);
       else setSelectedIds([]);
       return;
     }
-    if (filter === 'group') setSelectedGroups([...filteredGroupNames]);
+    if (isSectionMode) setSelectedGroups([...sectionNames]);
     else setSelectedIds(filteredItems.map((i) => i.id));
-  }, [allVisibleSelected, filter, filteredGroupNames, filteredItems]);
+  }, [allVisibleSelected, isSectionMode, sectionNames, filteredItems]);
 
-  const itemsInSelectedGroupsCount = useMemo(
-    () =>
-      filter === 'group'
-        ? items.filter((i) => selectedGroups.includes(itemDisplayGroup(i))).length
-        : 0,
-    [items, selectedGroups, filter]
-  );
+  const itemsInSelectedSectionsCount = useMemo(() => {
+    if (!isSectionMode) return 0;
+    if (viewMode === 'by_room') {
+      return items.filter((i) =>
+        selectedGroups.includes(resolveItemStorageRoom(i, rooms))
+      ).length;
+    }
+    if (viewMode === 'by_equipment') {
+      return items.filter((i) =>
+        selectedGroups.includes(resolveItemStorageEquipment(i, storageEquipment))
+      ).length;
+    }
+    return items.filter((i) => selectedGroups.includes(itemDisplayGroup(i))).length;
+  }, [items, selectedGroups, isSectionMode, viewMode, rooms, storageEquipment]);
 
   const confirmBulkDeleteItems = useCallback(() => {
     if (!selectedIds.length) return;
@@ -310,7 +448,7 @@ export function InventoryScreen() {
 
   const confirmBulkDeleteGroups = useCallback(() => {
     if (!selectedGroups.length) return;
-    const n = itemsInSelectedGroupsCount;
+    const n = itemsInSelectedSectionsCount;
     Alert.alert(
       '批量删除分组',
       `将删除 ${selectedGroups.length} 个分组及其下全部物品（共 ${n} 件），是否继续？`,
@@ -326,10 +464,58 @@ export function InventoryScreen() {
         },
       ]
     );
-  }, [selectedGroups, itemsInSelectedGroupsCount, removeGroupsByName, exitBulkMode]);
+  }, [selectedGroups, itemsInSelectedSectionsCount, removeGroupsByName, exitBulkMode]);
+
+  const confirmBulkDeleteByRoom = useCallback(() => {
+    if (!selectedGroups.length) return;
+    const ids = items
+      .filter((i) => selectedGroups.includes(resolveItemStorageRoom(i, rooms)))
+      .map((i) => i.id);
+    const n = ids.length;
+    Alert.alert(
+      '批量删除',
+      `将删除所选 ${selectedGroups.length} 个房间下的全部物品（共 ${n} 件），是否继续？`,
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '删除',
+          style: 'destructive',
+          onPress: () => {
+            removeItemsByIds(ids);
+            exitBulkMode();
+          },
+        },
+      ]
+    );
+  }, [selectedGroups, items, rooms, removeItemsByIds, exitBulkMode]);
+
+  const confirmBulkDeleteByEquipment = useCallback(() => {
+    if (!selectedGroups.length) return;
+    const ids = items
+      .filter((i) =>
+        selectedGroups.includes(resolveItemStorageEquipment(i, storageEquipment))
+      )
+      .map((i) => i.id);
+    const n = ids.length;
+    Alert.alert(
+      '批量删除',
+      `将删除所选 ${selectedGroups.length} 个位置下的全部物品（共 ${n} 件），是否继续？`,
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '删除',
+          style: 'destructive',
+          onPress: () => {
+            removeItemsByIds(ids);
+            exitBulkMode();
+          },
+        },
+      ]
+    );
+  }, [selectedGroups, items, storageEquipment, removeItemsByIds, exitBulkMode]);
 
   const handleBulkDelete = useCallback(() => {
-    if (filter === 'group') {
+    if (viewMode === 'by_group') {
       if (!selectedGroups.length) {
         Alert.alert('提示', '请先选择要删除的分组');
         return;
@@ -337,17 +523,61 @@ export function InventoryScreen() {
       confirmBulkDeleteGroups();
       return;
     }
+    if (viewMode === 'by_room') {
+      if (!selectedGroups.length) {
+        Alert.alert('提示', '请先选择要删除的房间');
+        return;
+      }
+      confirmBulkDeleteByRoom();
+      return;
+    }
+    if (viewMode === 'by_equipment') {
+      if (!selectedGroups.length) {
+        Alert.alert('提示', '请先选择要删除的位置');
+        return;
+      }
+      confirmBulkDeleteByEquipment();
+      return;
+    }
     if (!selectedIds.length) {
       Alert.alert('提示', '请先选择要删除的物品');
       return;
     }
     confirmBulkDeleteItems();
-  }, [filter, selectedGroups, selectedIds, confirmBulkDeleteGroups, confirmBulkDeleteItems]);
+  }, [
+    viewMode,
+    selectedGroups,
+    selectedIds,
+    confirmBulkDeleteGroups,
+    confirmBulkDeleteByRoom,
+    confirmBulkDeleteByEquipment,
+    confirmBulkDeleteItems,
+  ]);
 
   const openMoveToGroupModal = useCallback(() => {
     if (!selectedIds.length) return;
     setMoveModalVisible(true);
   }, [selectedIds]);
+
+  const openBulkCreate = useCallback(() => {
+    setCreatePickOpen(true);
+  }, []);
+
+  const confirmCreateName = useCallback(() => {
+    const t = createNameInput.trim();
+    if (!t || !createNameKind) return;
+    if (createNameKind === 'group') {
+      addGroup(t);
+    } else {
+      if (t === UNSET_STORAGE_ROOM) {
+        Alert.alert('提示', '该名称不可用，请换一个位置名');
+        return;
+      }
+      addRoom(t);
+    }
+    setCreateNameInput('');
+    setCreateNameKind(null);
+  }, [createNameInput, createNameKind, addGroup, addRoom]);
 
   useEffect(() => {
     if (!isFocused && bulkMode) {
@@ -361,24 +591,31 @@ export function InventoryScreen() {
       return;
     }
     setPayload({
-      summary:
-        filter === 'group'
-          ? `已选（${selectedGroups.length}）个分组`
-          : `已选（${selectedIds.length}）件`,
-      showMove: filter !== 'group',
+      summary: isSectionMode
+        ? viewMode === 'by_room'
+          ? `已选（${selectedGroups.length}）个房间`
+          : viewMode === 'by_equipment'
+            ? `已选（${selectedGroups.length}）个位置`
+            : `已选（${selectedGroups.length}）个分组`
+        : `已选（${selectedIds.length}）件`,
+      showMove: false,
+      showCreate: true,
       allVisibleSelected,
       onSelectAll: selectAllVisible,
       onMoveToGroup: openMoveToGroupModal,
+      onCreate: openBulkCreate,
       onDelete: handleBulkDelete,
     });
   }, [
     bulkMode,
-    filter,
+    viewMode,
+    isSectionMode,
     selectedIds,
     selectedGroups,
     allVisibleSelected,
     selectAllVisible,
     openMoveToGroupModal,
+    openBulkCreate,
     handleBulkDelete,
     setPayload,
   ]);
@@ -394,16 +631,42 @@ export function InventoryScreen() {
     setSelectedIds([]);
   };
 
-  const renderGroupRow = ({ item: g }: { item: string }) => {
-    const count = items.filter((i) => itemDisplayGroup(i) === g).length;
+  const renderSectionRow = ({ item: g }: { item: string }) => {
+    const count =
+      viewMode === 'by_room'
+        ? items.filter((i) => resolveItemStorageRoom(i, rooms) === g).length
+        : viewMode === 'by_equipment'
+          ? items.filter((i) => resolveItemStorageEquipment(i, storageEquipment) === g).length
+          : items.filter((i) => itemDisplayGroup(i) === g).length;
+    const groupMode: 'group' | 'room' | 'equipment' =
+      viewMode === 'by_room'
+        ? 'room'
+        : viewMode === 'by_equipment'
+          ? 'equipment'
+          : 'group';
     const sel = selectedGroups.includes(g);
     return (
       <SpringPressable
         style={[styles.groupRow, bulkMode && styles.groupRowBulk]}
         onPress={() => {
           if (bulkMode) toggleGroupSelect(g);
-          else navigation.navigate('InventoryGroup', { groupName: g });
+          else {
+            playNavTap();
+            navigation.navigate('InventoryGroup', {
+              groupName: g,
+              mode: groupMode,
+            });
+          }
         }}
+        onLongPress={() => {
+          if (bulkMode) {
+            toggleGroupSelect(g);
+            return;
+          }
+          setBulkMode(true);
+          setSelectedGroups((prev) => (prev.includes(g) ? prev : [...prev, g]));
+        }}
+        delayLongPress={320}
         shrink={0.98}
       >
         <View style={styles.groupRowMain}>
@@ -429,15 +692,24 @@ export function InventoryScreen() {
           style={[styles.tile, bulkMode && styles.tileBulk]}
           onPress={() => {
             if (bulkMode) toggleItemSelect(item.id);
-            else navigation.navigate('ItemDetail', { itemId: item.id });
+            else {
+              playNavTap();
+              navigation.navigate('ItemDetail', { itemId: item.id });
+            }
           }}
+          onLongPress={() => {
+            if (bulkMode) {
+              toggleItemSelect(item.id);
+              return;
+            }
+            setBulkMode(true);
+            setSelectedIds((prev) => (prev.includes(item.id) ? prev : [...prev, item.id]));
+          }}
+          delayLongPress={320}
           shrink={0.97}
         >
-          <View style={styles.tileImgWrap}>
-            <Image
-              source={{ uri: item.imageUri ?? 'https://picsum.photos/seed/placeholder/400/520' }}
-              style={[styles.tileImg, bulkMode && styles.tileImgBulk]}
-            />
+          <View style={[styles.tileImgWrap, bulkMode && styles.tileImgBulk]}>
+            <SoftCircleThumb uri={item.imageUri} size={colW} fadeTo={colors.bgDeep} />
             {bulkMode ? (
               <View style={styles.tileCheckWrap}>
                 <View style={[styles.checkBox, sel && styles.checkBoxOn]}>
@@ -460,65 +732,74 @@ export function InventoryScreen() {
 
   return (
     <View style={[styles.root, { paddingTop: insets.top + 8 }]}>
-      <View style={styles.topRow}>
-        <HeaderMenuOutlineButton />
-        <Text style={styles.logo}>STOW</Text>
-        <HeaderBrandMark onPress={() => navigation.navigate('ProfileTab')} />
-      </View>
-
       <View style={styles.titleRow}>
         <View style={styles.titleRowLeft}>
+          <HeaderMenuOutlineButton />
           <InventoryLayersAnimatedIcon size={30} />
           <Text style={styles.title}>我的物品</Text>
         </View>
         <DoodleCatInline size={48} />
       </View>
 
-      <View style={styles.searchWrap}>
+      <GlassSurface tint="search" style={styles.searchWrap}>
         <InventorySearchAnimatedIcon size={18} />
         <TextInput
-          placeholder="搜索库存物品..."
+          placeholder="搜搜我的物品……"
           placeholderTextColor={colors.textLight}
           style={styles.searchInput}
           value={query}
           onChangeText={setQuery}
+          {...searchReturnKeyProps}
+          onSubmitEditing={dismissKeyboard}
         />
-      </View>
+      </GlassSurface>
 
       <View style={styles.tabsRow}>
-        <View style={styles.tabs}>
-          {(
-            [
-              { key: 'all' as const, label: '全部' },
-              { key: 'group' as const, label: '按组查看' },
-              { key: 'recent' as const, label: '近期添加' },
-            ] as const
-          ).map((t) => {
-            const active = filter === t.key;
-            return (
-              <SpringPressable
-                key={t.key}
-                style={[styles.tabChip, active && styles.tabChipActive]}
-                onPress={() => setFilter(t.key)}
-                shrink={0.96}
-              >
-                <Text style={[styles.tabChipText, active && styles.tabChipTextActive]}>{t.label}</Text>
-              </SpringPressable>
-            );
-          })}
-        </View>
         {bulkMode ? (
-          <SpringPressable onPress={exitBulkMode} style={styles.tabGearBtn} shrink={0.95}>
+          <SpringPressable
+            style={styles.cancelBulkBtn}
+            onPress={exitBulkMode}
+            shrink={0.97}
+            accessibilityRole="button"
+            accessibilityLabel="取消多选"
+          >
+            <Text style={styles.cancelBulkText}>取消</Text>
+          </SpringPressable>
+        ) : (
+          <SpringPressable
+            style={styles.filterBtn}
+            onPress={() => setFilterModalOpen(true)}
+            shrink={0.97}
+            accessibilityRole="button"
+            accessibilityLabel={`筛选，当前${viewModeLabel(viewMode)}`}
+          >
+            <GlassSurface pointerEvents="none" tint="surface" style={StyleSheet.absoluteFillObject} />
+            <Text style={styles.filterBtnLead}>筛选</Text>
+            <Text style={styles.filterBtnText} numberOfLines={1}>
+              {viewModeLabel(viewMode)}
+            </Text>
+            <Ionicons name="chevron-down" size={16} color={colors.textOnGlassMuted} />
+          </SpringPressable>
+        )}
+        {bulkMode ? (
+          <SpringPressable
+            onPress={exitBulkMode}
+            style={styles.doneBulkBtn}
+            shrink={0.95}
+            accessibilityLabel="完成多选"
+          >
             <Text style={styles.doneBulkText}>完成</Text>
           </SpringPressable>
         ) : (
           <SpringPressable
             onPress={() => setBulkMode(true)}
-            style={styles.tabGearBtn}
-            shrink={0.92}
-            accessibilityLabel="批量管理"
+            style={styles.bulkActionBtn}
+            shrink={0.95}
+            accessibilityLabel="管理，批量操作"
           >
-            <Ionicons name="cog-outline" size={22} color={colors.text} />
+            <GlassSurface pointerEvents="none" tint="surface" style={StyleSheet.absoluteFillObject} />
+            <Text style={styles.bulkActionBtnText}>管理</Text>
+            <Ionicons name="cog-outline" size={18} color={colors.textOnGlass} />
           </SpringPressable>
         )}
       </View>
@@ -527,28 +808,34 @@ export function InventoryScreen() {
         style={{ flex: 1, opacity: listContentOpacity }}
         needsOffscreenAlphaCompositing
       >
-        {filter === 'group' ? (
+        {isSectionMode ? (
           <FlatList
-            key="inventory-list-by-group"
-            data={filteredGroupNames}
+            ref={sectionListRef}
+            key={`inventory-list-${viewMode}`}
+            data={sectionNames}
             keyExtractor={(g) => g}
             contentContainerStyle={{
-              paddingBottom: bulkMode ? 75 + insets.bottom : 120,
+              paddingBottom: bulkMode
+                ? 75 + insets.bottom
+                : 24 + MAIN_TAB_BAR_CONTENT_HEIGHT + 72 + insets.bottom,
               paddingTop: 8,
             }}
             showsVerticalScrollIndicator={false}
-            renderItem={renderGroupRow}
+            renderItem={renderSectionRow}
             ItemSeparatorComponent={() => <View style={styles.groupSep} />}
           />
         ) : (
           <FlatList
-            key="inventory-grid-items"
+            ref={itemsListRef}
+            key={`inventory-grid-${viewMode}`}
             data={filteredItems}
             keyExtractor={(i) => i.id}
             numColumns={2}
             columnWrapperStyle={{ gap, marginBottom: gap }}
             contentContainerStyle={{
-              paddingBottom: bulkMode ? 75 + insets.bottom : 120,
+              paddingBottom: bulkMode
+                ? 75 + insets.bottom
+                : 24 + MAIN_TAB_BAR_CONTENT_HEIGHT + 72 + insets.bottom,
               paddingTop: 8,
             }}
             showsVerticalScrollIndicator={false}
@@ -558,10 +845,51 @@ export function InventoryScreen() {
       </Animated.View>
 
       <InventoryFabCluster
-        bottom={24 + insets.bottom}
+        bottom={16 + MAIN_TAB_BAR_CONTENT_HEIGHT + insets.bottom}
         navigation={navigation}
         hidden={bulkMode}
       />
+
+      <Modal
+        visible={filterModalOpen}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        presentationStyle="overFullScreen"
+        onRequestClose={() => setFilterModalOpen(false)}
+      >
+        <Pressable style={styles.filterModalBackdrop} onPress={() => setFilterModalOpen(false)}>
+          <Pressable
+            style={[styles.filterModalCard, { paddingBottom: 16 + insets.bottom }]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <Text style={styles.filterModalTitle}>筛选与排序</Text>
+            {VIEW_MODE_OPTIONS.map((opt) => {
+              const active = viewMode === opt.key;
+              return (
+                <SpringPressable
+                  key={opt.key}
+                  style={[styles.filterOptionRow, active && styles.filterOptionRowActive]}
+                  onPress={() => {
+                    setViewMode(opt.key);
+                    setFilterModalOpen(false);
+                  }}
+                  shrink={0.98}
+                >
+                  <Text
+                    style={[styles.filterOptionText, active && styles.filterOptionTextActive]}
+                  >
+                    {opt.label}
+                  </Text>
+                  {active ? (
+                    <Ionicons name="checkmark" size={18} color={colors.onPrimary} />
+                  ) : null}
+                </SpringPressable>
+              );
+            })}
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <Modal visible={moveModalVisible} transparent animationType="fade">
         <Pressable style={styles.moveModalBackdrop} onPress={() => setMoveModalVisible(false)}>
@@ -579,13 +907,99 @@ export function InventoryScreen() {
                   shrink={0.98}
                 >
                   <Text style={styles.moveModalRowText}>{g}</Text>
-                  <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                  <Ionicons name="chevron-forward" size={18} color={colors.modalCardMuted} />
                 </SpringPressable>
               ))}
             </ScrollView>
             <SpringPressable style={styles.moveModalCancel} onPress={() => setMoveModalVisible(false)} shrink={0.97}>
               <Text style={styles.moveModalCancelText}>取消</Text>
             </SpringPressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={createPickOpen}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        presentationStyle="overFullScreen"
+        onRequestClose={() => setCreatePickOpen(false)}
+      >
+        <Pressable style={styles.createModalBackdrop} onPress={() => setCreatePickOpen(false)}>
+          <Pressable style={styles.createModalCard} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.moveModalTitle}>新建</Text>
+            <SpringPressable
+              style={styles.moveModalRow}
+              onPress={() => {
+                setCreatePickOpen(false);
+                setCreateNameInput('');
+                setCreateNameKind('group');
+              }}
+              shrink={0.98}
+            >
+              <Text style={styles.moveModalRowText}>新建分组</Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.modalCardMuted} />
+            </SpringPressable>
+            <SpringPressable
+              style={styles.moveModalRow}
+              onPress={() => {
+                setCreatePickOpen(false);
+                setCreateNameInput('');
+                setCreateNameKind('location');
+              }}
+              shrink={0.98}
+            >
+              <Text style={styles.moveModalRowText}>新建位置</Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.modalCardMuted} />
+            </SpringPressable>
+            <SpringPressable
+              style={styles.moveModalCancel}
+              onPress={() => setCreatePickOpen(false)}
+              shrink={0.97}
+            >
+              <Text style={styles.moveModalCancelText}>取消</Text>
+            </SpringPressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={createNameKind != null}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        presentationStyle="overFullScreen"
+        onRequestClose={() => setCreateNameKind(null)}
+      >
+        <Pressable style={styles.createModalBackdrop} onPress={() => setCreateNameKind(null)}>
+          <Pressable style={styles.createModalCard} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.moveModalTitle}>
+              {createNameKind === 'location' ? '新建位置' : '新建分组'}
+            </Text>
+            <View style={styles.createNameInputWrap}>
+              <TextInput
+                style={styles.createNameInput}
+                placeholder={createNameKind === 'location' ? '位置名称' : '分组名称'}
+                placeholderTextColor={colors.textLight}
+                value={createNameInput}
+                onChangeText={setCreateNameInput}
+                autoFocus
+                {...doneReturnKeyProps}
+              />
+            </View>
+            <View style={styles.createNameActions}>
+              <SpringPressable
+                style={styles.createNameBtnGhost}
+                onPress={() => setCreateNameKind(null)}
+                shrink={0.96}
+              >
+                <Text style={styles.createNameBtnGhostText}>取消</Text>
+              </SpringPressable>
+              <SpringPressable style={styles.createNameBtnPrimary} onPress={confirmCreateName} shrink={0.96}>
+                <Text style={styles.createNameBtnPrimaryText}>添加</Text>
+              </SpringPressable>
+            </View>
           </Pressable>
         </Pressable>
       </Modal>
@@ -596,25 +1010,11 @@ export function InventoryScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: colors.bg,
+    backgroundColor: 'transparent',
     paddingHorizontal: 20,
   },
-  topRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  logo: {
-    flex: 1,
-    textAlign: 'center',
-    fontFamily: fonts.bold,
-    fontSize: 22,
-    letterSpacing: 3,
-    color: colors.text,
-  },
   titleRow: {
-    marginTop: 4,
+    marginBottom: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -632,52 +1032,140 @@ const styles = StyleSheet.create({
   tabsRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginTop: 14,
-    gap: 6,
+    gap: 10,
   },
-  tabGearBtn: {
-    width: 40,
-    height: 40,
+  filterBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minHeight: 40,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    overflow: 'hidden',
+    borderRadius: radius.surface,
+  },
+  filterBtnLead: {
+    fontSize: 14,
+    fontFamily: fonts.bold,
+    color: colors.textOnGlass,
+  },
+  filterBtnText: {
+    flex: 1,
+    fontSize: 14,
+    fontFamily: fonts.semiBold,
+    color: colors.textOnGlassMuted,
+  },
+  bulkActionBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    alignSelf: 'flex-start',
+    gap: 6,
+    minHeight: 40,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    flexShrink: 0,
+    overflow: 'hidden',
+    borderRadius: radius.surface,
   },
-  doneBulkText: { fontSize: 13, fontFamily: fonts.bold, color: colors.primary },
+  bulkActionBtnText: {
+    fontSize: 14,
+    fontFamily: fonts.bold,
+    color: colors.textOnGlass,
+  },
+  cancelBulkBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 40,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: radius.surface,
+    backgroundColor: 'rgba(255,255,255,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(58, 74, 90, 0.22)',
+  },
+  cancelBulkText: {
+    fontSize: 15,
+    fontFamily: fonts.bold,
+    color: colors.textOnGlass,
+  },
+  doneBulkBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 40,
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    flexShrink: 0,
+    borderRadius: radius.surface,
+    backgroundColor: colors.primary,
+  },
+  doneBulkText: {
+    fontSize: 15,
+    fontFamily: fonts.extraBold,
+    color: colors.onPrimary,
+  },
   searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#EEEEEA',
     borderRadius: radius.surface,
     marginTop: 16,
     paddingHorizontal: 12,
+    overflow: 'hidden',
   },
-  searchInput: { flex: 1, paddingVertical: 12, fontSize: 15, color: colors.text },
-  tabs: { flex: 1, flexDirection: 'row', gap: 10, flexWrap: 'wrap', alignItems: 'center' },
-  tabChip: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
+  searchInput: { flex: 1, paddingVertical: 12, fontSize: 15, color: colors.textOnGlass },
+  filterModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+  },
+  filterModalCard: {
+    backgroundColor: colors.modalCardBg,
+    paddingTop: 16,
+    paddingHorizontal: 12,
+    overflow: 'hidden',
     borderRadius: radius.surface,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    backgroundColor: colors.surface,
   },
-  tabChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  tabChipText: { fontSize: 13, fontFamily: fonts.semiBold, color: colors.text },
-  tabChipTextActive: { color: colors.onPrimary },
+  filterModalTitle: {
+    fontSize: 16,
+    fontFamily: fonts.extraBold,
+    color: colors.modalCardText,
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
+  filterOptionRow: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(58, 74, 90, 0.12)',
+  },
+  filterOptionRowActive: {
+    backgroundColor: colors.primary,
+  },
+  filterOptionText: {
+    fontSize: 15,
+    fontFamily: fonts.medium,
+    color: colors.modalCardText,
+  },
+  filterOptionTextActive: {
+    color: colors.onPrimary,
+    fontFamily: fonts.bold,
+  },
   tileWrap: { position: 'relative' },
   tile: {},
   tileBulk: { opacity: 0.52 },
   tileImgWrap: {
     position: 'relative',
     width: '100%',
-    borderRadius: radius.surface,
-    overflow: 'hidden',
-  },
-  tileImg: {
-    width: '100%',
-    aspectRatio: 0.78,
-    borderRadius: radius.surface,
-    backgroundColor: colors.border,
+    alignItems: 'center',
   },
   tileImgBulk: { opacity: 0.55 },
   tileCheckWrap: {
@@ -718,20 +1206,39 @@ const styles = StyleSheet.create({
   groupSep: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
   moveModalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: 'rgba(0,0,0,0.55)',
     justifyContent: 'flex-end',
   },
   moveModalCard: {
-    backgroundColor: colors.surface,
+    backgroundColor: colors.modalCardBg,
     borderTopLeftRadius: radius.surface,
     borderTopRightRadius: radius.surface,
     paddingHorizontal: 20,
     paddingTop: 16,
     maxHeight: '55%',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
+    overflow: 'hidden',
   },
-  moveModalTitle: { fontSize: 17, fontFamily: fonts.extraBold, color: colors.text, marginBottom: 12 },
+  /** 新建分组/位置：屏幕居中 */
+  createModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+  },
+  createModalCard: {
+    backgroundColor: colors.modalCardBg,
+    borderRadius: radius.surface,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 20,
+    overflow: 'hidden',
+  },
+  moveModalTitle: {
+    fontSize: 17,
+    fontFamily: fonts.extraBold,
+    color: colors.modalCardText,
+    marginBottom: 12,
+  },
   moveModalList: { maxHeight: 280 },
   moveModalRow: {
     flexDirection: 'row',
@@ -739,15 +1246,66 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
+    borderBottomColor: 'rgba(58, 74, 90, 0.12)',
   },
-  moveModalRowText: { fontSize: 16, fontFamily: fonts.semiBold, color: colors.text },
+  moveModalRowText: {
+    fontSize: 16,
+    fontFamily: fonts.semiBold,
+    color: colors.modalCardText,
+  },
   moveModalCancel: {
     marginTop: 16,
     alignItems: 'center',
     paddingVertical: 12,
   },
-  moveModalCancelText: { fontSize: 15, fontFamily: fonts.semiBold, color: colors.textMuted },
+  moveModalCancelText: {
+    fontSize: 15,
+    fontFamily: fonts.semiBold,
+    color: colors.modalCardMuted,
+  },
+  createNameInputWrap: {
+    borderRadius: radius.surface,
+    borderWidth: 1,
+    borderColor: 'rgba(58, 74, 90, 0.18)',
+    backgroundColor: '#fff',
+    marginBottom: 18,
+    overflow: 'hidden',
+  },
+  createNameInput: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: colors.modalCardText,
+  },
+  createNameActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+  },
+  createNameBtnGhost: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: radius.surface,
+    borderWidth: 1,
+    borderColor: 'rgba(58, 74, 90, 0.2)',
+    backgroundColor: '#fff',
+  },
+  createNameBtnGhostText: {
+    fontSize: 15,
+    fontFamily: fonts.semiBold,
+    color: colors.modalCardText,
+  },
+  createNameBtnPrimary: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: radius.surface,
+    backgroundColor: colors.primary,
+  },
+  createNameBtnPrimaryText: {
+    fontSize: 15,
+    fontFamily: fonts.bold,
+    color: colors.onPrimary,
+  },
   fabBackdrop: {
     ...StyleSheet.absoluteFillObject,
     top: 0,
@@ -772,11 +1330,11 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: radius.surface,
-    backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOpacity: 0.12,
     shadowRadius: 6,

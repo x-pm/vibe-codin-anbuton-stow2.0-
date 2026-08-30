@@ -171,7 +171,7 @@ export function HomeEntryAnimatedIcon({ variant }: { variant: HomeEntryIconVaria
   /** 方格入口用大图标；首页「手动录入」横条与 14px 标题字等高，用紧凑格 */
   const size = variant === 'manual' ? 19 : 36;
   const boxPx = variant === 'manual' ? 26 : 48;
-  const color = variant === 'scan' ? colors.onPrimary : colors.text;
+  const color = variant === 'scan' ? colors.onPrimary : colors.textOnGlass;
 
   const transform =
     variant === 'scan'

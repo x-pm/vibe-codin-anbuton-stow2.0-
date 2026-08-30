@@ -114,7 +114,7 @@ export function PlanDatePickerPanel({ value, onSelect, onClear }: Props) {
           onPress={() => setMenu((x) => (x === 'year' ? 'none' : 'year'))}
         >
           <Text style={styles.dropdownText}>{y}</Text>
-          <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
+          <Ionicons name="chevron-down" size={14} color={colors.modalCardMuted} />
         </EasePressable>
         <EasePressable
           pressableStyle={[styles.dropdownBox, menu === 'month' && styles.dropdownBoxOpen]}
@@ -123,7 +123,7 @@ export function PlanDatePickerPanel({ value, onSelect, onClear }: Props) {
           onPress={() => setMenu((x) => (x === 'month' ? 'none' : 'month'))}
         >
           <Text style={styles.dropdownText}>{m + 1}月</Text>
-          <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
+          <Ionicons name="chevron-down" size={14} color={colors.modalCardMuted} />
         </EasePressable>
         <View style={styles.navArrows}>
           <EasePressable
@@ -133,7 +133,7 @@ export function PlanDatePickerPanel({ value, onSelect, onClear }: Props) {
             onPress={goPrevMonth}
             accessibilityLabel="上一月"
           >
-            <Ionicons name="chevron-back" size={22} color={colors.text} />
+            <Ionicons name="chevron-back" size={22} color={colors.modalCardText} />
           </EasePressable>
           <EasePressable
             pressableStyle={styles.arrowHit}
@@ -142,7 +142,7 @@ export function PlanDatePickerPanel({ value, onSelect, onClear }: Props) {
             onPress={goNextMonth}
             accessibilityLabel="下一月"
           >
-            <Ionicons name="chevron-forward" size={22} color={colors.text} />
+            <Ionicons name="chevron-forward" size={22} color={colors.modalCardText} />
           </EasePressable>
         </View>
       </View>
@@ -218,7 +218,7 @@ export function PlanDatePickerPanel({ value, onSelect, onClear }: Props) {
           onPress={pickToday}
           accessibilityLabel="今天"
         >
-          <Ionicons name="locate-outline" size={18} color={colors.textMuted} />
+          <Ionicons name="locate-outline" size={18} color={colors.modalCardMuted} />
           <Text style={styles.todayText}>今天</Text>
         </EasePressable>
         <EasePressable
@@ -243,10 +243,10 @@ const CELL_H = 46;
 const styles = StyleSheet.create({
   root: {
     alignSelf: 'stretch',
-    backgroundColor: colors.surface,
+    backgroundColor: colors.modalCardBg,
     borderRadius: radius.surface,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
+    borderColor: 'rgba(58, 74, 90, 0.16)',
     paddingHorizontal: 14,
     paddingTop: 14,
     paddingBottom: 14,
@@ -270,14 +270,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     borderRadius: radius.surface,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.bg,
+    borderColor: 'rgba(58, 74, 90, 0.18)',
+    backgroundColor: '#fff',
   },
   dropdownBoxOpen: {
-    borderColor: '#7EB6E8',
+    borderColor: colors.primary,
     backgroundColor: '#F3F8FD',
   },
-  dropdownText: { fontSize: 15, fontFamily: fonts.semiBold, color: colors.text },
+  dropdownText: { fontSize: 15, fontFamily: fonts.semiBold, color: colors.modalCardText },
   navArrows: { flex: 1, flexDirection: 'row', justifyContent: 'flex-end', gap: 4 },
   arrowHit: { padding: 6 },
   menuScroll: { maxHeight: 140, marginBottom: 10 },
@@ -287,12 +287,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: radius.surface,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.bg,
+    borderColor: 'rgba(58, 74, 90, 0.18)',
+    backgroundColor: '#fff',
   },
-  yearChipActive: { borderColor: '#7EB6E8', backgroundColor: '#D6E8FA' },
-  yearChipText: { fontSize: 14, fontFamily: fonts.semiBold, color: colors.text },
-  yearChipTextActive: { color: colors.text },
+  yearChipActive: { borderColor: colors.primary, backgroundColor: '#D6E8FA' },
+  yearChipText: { fontSize: 14, fontFamily: fonts.semiBold, color: colors.modalCardText },
+  yearChipTextActive: { color: colors.modalCardText },
   monthWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -306,19 +306,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: radius.surface,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.bg,
+    borderColor: 'rgba(58, 74, 90, 0.18)',
+    backgroundColor: '#fff',
   },
-  monthChipActive: { borderColor: '#7EB6E8', backgroundColor: '#D6E8FA' },
-  monthChipText: { fontSize: 14, fontFamily: fonts.semiBold, color: colors.text },
-  monthChipTextActive: { color: colors.text },
+  monthChipActive: { borderColor: colors.primary, backgroundColor: '#D6E8FA' },
+  monthChipText: { fontSize: 14, fontFamily: fonts.semiBold, color: colors.modalCardText },
+  monthChipTextActive: { color: colors.modalCardText },
   weekRow: { flexDirection: 'row', marginBottom: 8 },
   weekCell: {
     flex: 1,
     textAlign: 'center',
     fontSize: 13,
     fontFamily: fonts.semiBold,
-    color: colors.textMuted,
+    color: colors.modalCardMuted,
     paddingVertical: 6,
   },
   dayRow: {
@@ -339,13 +339,13 @@ const styles = StyleSheet.create({
   dayNum: {
     fontSize: 17,
     fontFamily: fonts.semiBold,
-    color: colors.text,
+    color: colors.modalCardText,
     textAlign: 'center',
     lineHeight: 22,
     includeFontPadding: false,
   },
-  dayNumMuted: { color: colors.textLight, fontFamily: fonts.medium },
-  dayNumSelected: { color: colors.text },
+  dayNumMuted: { color: colors.modalCardMuted, fontFamily: fonts.medium },
+  dayNumSelected: { color: colors.modalCardText },
   footerRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -356,7 +356,7 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
     minHeight: 52,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
+    borderTopColor: 'rgba(58, 74, 90, 0.12)',
     gap: 28,
   },
   todayBtn: {
@@ -366,7 +366,17 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 12,
   },
-  todayText: { fontSize: 15, fontFamily: fonts.semiBold, color: colors.textMuted, lineHeight: 22 },
+  todayText: {
+    fontSize: 15,
+    fontFamily: fonts.semiBold,
+    color: colors.modalCardMuted,
+    lineHeight: 22,
+  },
   clearBtn: { paddingVertical: 10, paddingHorizontal: 12 },
-  clearText: { fontSize: 15, fontFamily: fonts.semiBold, color: colors.textLight, lineHeight: 22 },
+  clearText: {
+    fontSize: 15,
+    fontFamily: fonts.semiBold,
+    color: colors.modalCardMuted,
+    lineHeight: 22,
+  },
 });

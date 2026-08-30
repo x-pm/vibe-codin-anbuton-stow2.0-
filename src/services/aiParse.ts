@@ -1,4 +1,6 @@
 import type { ItemFormPreset } from '../types/models';
+import { enrichPresetWithEstimatedLocation } from '../utils/estimateStorageRoom';
+import { callAiProxy, isCloudbaseConfigured } from './cloudbase';
 import { fallbackTitleFromUrl, sanitizeProductTitle } from './linkMetaExtract';
 
 const DEFAULT_BASE = 'https://api.siliconflow.cn/v1';
@@ -14,7 +16,7 @@ const SYSTEM_JSON = `你是中文个人仓库「物品录入」助手。只输�
 键与含义：
 name（物品名称，尽量具体；扫描/拍照时填写与实物识别置信度最高的名称即可，不要仅因可能与仓库已有名称相近或同名而改写或刻意回避）,
 sku（条码/货号，看不清可为空）,
-location（推测的存放位置，可为空）,
+location（推测的存放房间，优先从以下选择：客厅|餐厅|主卧|次卧|儿童房|厨房|卫生间|书房|玄关|阳台|杂物间|衣帽间|保姆房|车库；餐具、厨具、食品饮料等优先填「厨房」；洗发沐浴、牙膏牙刷、毛巾浴巾等洗浴用品优先填「卫生间」；其余无法明确判断时填「主卧」）,
 category（必须是以下之一：电子产品|耗材|文献|工具|衣物|其他）,
 remarks（备注：可含包装上的文字、品牌、规格、外观描述等）,
 quantity（整数件数，无法判断则为1）。
@@ -157,9 +159,9 @@ function getApiKey(): string {
   return process.env.EXPO_PUBLIC_SILICONFLOW_API_KEY?.trim() ?? '';
 }
 
-/** 是否已配置硅基流动密钥 */
+/** 是否已配置 AI：优先云开发云函数；否则回退本地硅基 Key */
 export function isSiliconflowConfigured(): boolean {
-  return getApiKey().length > 0;
+  return isCloudbaseConfigured() || getApiKey().length > 0;
 }
 
 function getBaseUrl(): string {
@@ -214,13 +216,14 @@ function presetFromJsonObject(obj: Record<string, unknown>): ItemFormPreset {
   }
 
   const rawName = String(obj.name ?? '').trim();
-  return {
+  return enrichPresetWithEstimatedLocation({
     name: sanitizeProductTitle(rawName) ?? '',
     sku: String(obj.sku ?? '').trim(),
     location: String(obj.location ?? '').trim(),
     category: String(obj.category ?? '').trim(),
+    remarks: String(obj.remarks ?? '').trim() || undefined,
     quantity,
-  };
+  });
 }
 
 async function fetchPostChatCompletions(
@@ -254,7 +257,77 @@ async function fetchPostChatCompletions(
   }
 }
 
-async function siliconflowChatCompletion(
+function friendlyUpstreamError(errText: string, opts?: { modelNotExistHint?: string }): Error {
+  let friendly = '';
+  try {
+    const j = JSON.parse(errText) as { code?: number; message?: string };
+    const code = j.code;
+    const msg = String(j.message ?? '');
+    if (code === 30001 || /insufficient|balance|余额不足|额度/i.test(msg)) {
+      friendly =
+        '硅基流动账户余额不足或免费额度已用尽（错误码 30001），暂时无法调用模型。请到 siliconflow.cn 控制台充值或领取额度后再试；当前可先使用「手动录入」或不走 AI 的流程。';
+    }
+  } catch {
+    /* */
+  }
+  let hint = '';
+  if (
+    opts?.modelNotExistHint &&
+    (errText.includes('20012') ||
+      errText.includes('Model does not exist') ||
+      errText.includes('model does not exist'))
+  ) {
+    hint = `\n\n${opts.modelNotExistHint}`;
+  }
+  if (friendly) return new Error(friendly + hint);
+  return new Error(
+    `模型请求失败${errText ? `: ${errText.slice(0, 280)}` : ''}${hint}`
+  );
+}
+
+/** 经云函数 stowyun 调用硅基（推荐） */
+async function siliconflowViaCloudbase(
+  model: string,
+  messages: Array<{
+    role: 'system' | 'user' | 'assistant';
+    content: string | Array<Record<string, unknown>>;
+  }>,
+  opts?: { modelNotExistHint?: string; timeoutMs?: number }
+): Promise<string> {
+  const timeoutMs = opts?.timeoutMs ?? 90_000;
+  const result = await callAiProxy({
+    model,
+    messages,
+    temperature: 0.2,
+    timeoutMs,
+  });
+
+  if (!result.ok) {
+    if (result.error === 'UNAUTHORIZED') {
+      throw new Error(
+        result.message ||
+          '云函数拒绝未登录调用。请确认已开启匿名登录，且函数权限为 auth != null。'
+      );
+    }
+    if (result.error === 'NO_API_KEY') {
+      throw new Error(
+        '云函数未配置 SILICONFLOW_API_KEY。请在云开发控制台为函数添加环境变量后重新部署。'
+      );
+    }
+    const errText =
+      typeof result.body === 'string'
+        ? result.body
+        : result.body
+          ? JSON.stringify(result.body)
+          : result.message || result.error || '';
+    throw friendlyUpstreamError(errText, opts);
+  }
+
+  return result.content ?? '';
+}
+
+/** 本地直连硅基（无云开发时的回退） */
+async function siliconflowDirect(
   model: string,
   messages: Array<{
     role: 'system' | 'user' | 'assistant';
@@ -265,7 +338,7 @@ async function siliconflowChatCompletion(
   const apiKey = getApiKey();
   if (!apiKey) {
     throw new Error(
-      '未配置 EXPO_PUBLIC_SILICONFLOW_API_KEY。请在硅基流动官网注册后在项目根目录 .env 中填写该密钥。'
+      '未配置云开发环境 ID，也未配置 EXPO_PUBLIC_SILICONFLOW_API_KEY。请在 .env 填写 EXPO_PUBLIC_CLOUDBASE_ENV_ID，或本地硅基 Key。'
     );
   }
 
@@ -283,40 +356,27 @@ async function siliconflowChatCompletion(
 
   if (!res.ok) {
     const errText = await res.text().catch(() => '');
-    let friendly = '';
-    try {
-      const j = JSON.parse(errText) as { code?: number; message?: string };
-      const code = j.code;
-      const msg = String(j.message ?? '');
-      if (
-        code === 30001 ||
-        /insufficient|balance|余额不足|额度/i.test(msg)
-      ) {
-        friendly =
-          '硅基流动账户余额不足或免费额度已用尽（错误码 30001），暂时无法调用模型。请到 siliconflow.cn 控制台充值或领取额度后再试；当前可先使用「手动录入」或不走 AI 的流程。';
-      }
-    } catch {
-      /* 非 JSON 错误体 */
-    }
-    let hint = '';
-    if (
-      opts?.modelNotExistHint &&
-      (errText.includes('20012') ||
-        errText.includes('Model does not exist') ||
-        errText.includes('model does not exist'))
-    ) {
-      hint = `\n\n${opts.modelNotExistHint}`;
-    }
-    if (friendly) {
-      throw new Error(friendly + hint);
-    }
-    throw new Error(`模型请求失败（${res.status}）${errText ? `: ${errText.slice(0, 280)}` : ''}${hint}`);
+    throw friendlyUpstreamError(errText, opts);
   }
 
   const data = (await res.json()) as {
     choices?: Array<{ message?: { content?: string } }>;
   };
   return data.choices?.[0]?.message?.content ?? '';
+}
+
+async function siliconflowChatCompletion(
+  model: string,
+  messages: Array<{
+    role: 'system' | 'user' | 'assistant';
+    content: string | Array<Record<string, unknown>>;
+  }>,
+  opts?: { modelNotExistHint?: string; timeoutMs?: number }
+): Promise<string> {
+  if (isCloudbaseConfigured()) {
+    return siliconflowViaCloudbase(model, messages, opts);
+  }
+  return siliconflowDirect(model, messages, opts);
 }
 
 /**
@@ -381,11 +441,11 @@ ${params.htmlSnippet.slice(0, 12000)}`;
     name = name.slice(0, 120);
   }
 
-  return {
+  return enrichPresetWithEstimatedLocation({
     ...base,
     name,
     imageUrl,
-  };
+  });
 }
 
 /**

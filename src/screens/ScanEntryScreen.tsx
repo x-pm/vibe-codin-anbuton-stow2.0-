@@ -22,17 +22,13 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SpringPressable } from '../components/SpringPressable';
 import type { RootStackParamList } from '../navigation/types';
-import type { ItemFormPreset } from '../types/models';
 import { safeLeaveToPreviousOrHome } from '../navigation/safeNavigate';
-import { fetchLinkContent } from '../services/fetchLink';
-import {
-  isSiliconflowConfigured,
-  parseItemFieldsFromImageDataUri,
-  parseItemFieldsFromText,
-} from '../services/aiParse';
+import { confirmAiProcessingIfNeeded } from '../services/aiConsent';
+import { isSiliconflowConfigured, parseItemFieldsFromImageDataUri } from '../services/aiParse';
 import { colors } from '../theme/colors';
 import { fonts } from '../theme/fonts';
 import { radius } from '../theme/radius';
+import { enrichPresetWithEstimatedLocation } from '../utils/estimateStorageRoom';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 type ScanEntryRoute = RouteProp<RootStackParamList, 'ScanEntry'>;
@@ -42,16 +38,14 @@ const pickStyles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: 'transparent' },
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: 'rgba(0,0,0,0.55)',
     justifyContent: 'center',
     paddingHorizontal: 28,
   },
   card: {
-    backgroundColor: colors.surface,
+    backgroundColor: colors.modalCardBg,
     borderRadius: radius.surface,
     padding: 18,
-    borderWidth: 1,
-    borderColor: colors.border,
   },
   primaryBtn: {
     alignItems: 'center',
@@ -65,7 +59,7 @@ const pickStyles = StyleSheet.create({
   hint: {
     marginTop: 14,
     fontSize: 12,
-    color: colors.textMuted,
+    color: colors.modalCardMuted,
     lineHeight: 18,
     textAlign: 'center',
   },
@@ -96,15 +90,6 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
       }
     );
   });
-}
-
-/** 未配置 AI：不把扫码原文写入「备注」；纯数字条码写入 sku，否则把截断原文作为名称便于手改 */
-function presetFromScanWithoutAi(raw: string): ItemFormPreset {
-  const trimmed = raw.trim();
-  if (/^\d{8,14}$/.test(trimmed)) {
-    return { sku: trimmed };
-  }
-  return { name: trimmed.slice(0, 80) };
 }
 
 const FALLBACK_CROP_NORM = { l: 0.08, t: 0.08, r: 0.92, b: 0.92 };
@@ -228,7 +213,6 @@ export function ScanEntryScreen() {
   const entryHint = route.params?.entryHint;
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<InstanceType<typeof CameraView> | null>(null);
-  const scannedRef = useRef(false);
   const [busy, setBusy] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
   /** 先进与链接录入一致的弹窗；「拍照」后再进入取景 */
@@ -340,8 +324,8 @@ export function ScanEntryScreen() {
       if (busy) return;
       if (!isSiliconflowConfigured()) {
         Alert.alert(
-          '未配置 AI 密钥',
-          '「拍照/相册识别」需要硅基流动 API Key（.env 中的 EXPO_PUBLIC_SILICONFLOW_API_KEY），并需使用支持视觉的模型（默认 EXPO_PUBLIC_SILICONFLOW_VISION_MODEL）。',
+          '未配置 AI 识别',
+          '正式包需在 EAS 构建时写入云开发环境 ID，或硅基流动 API Key。本地开发则写在 .env。',
           [
             {
               text: '手动录入',
@@ -355,6 +339,8 @@ export function ScanEntryScreen() {
         );
         return;
       }
+      const agreed = await confirmAiProcessingIfNeeded();
+      if (!agreed) return;
       setBusy(true);
       try {
         const manipulated = await withTimeout(
@@ -377,7 +363,10 @@ export function ScanEntryScreen() {
         const dataUri = `data:image/jpeg;base64,${manipulated.base64}`;
         const preset = await parseItemFieldsFromImageDataUri(dataUri);
         navigation.replace('AddItem', {
-          preset: { ...preset, localImageUri: manipulated.uri },
+          preset: enrichPresetWithEstimatedLocation({
+            ...preset,
+            localImageUri: manipulated.uri,
+          }),
         });
       } catch (e) {
         const msg = e instanceof Error ? e.message : '识别失败';
@@ -503,76 +492,16 @@ export function ScanEntryScreen() {
   }, [busy, visionRecognizeFromImageUri]);
 
   const openCameraMode = useCallback(async () => {
-    const res = await requestPermission();
-    if (res.granted) {
+    const granted = permission?.granted
+      ? true
+      : (await requestPermission()).granted;
+    if (granted) {
+      setCameraReady(false);
       setMode('camera');
       return;
     }
-    Alert.alert('提示', '需要相机权限才能拍照或扫描条码。');
-  }, [requestPermission]);
-
-  const onBarcodeScanned = useCallback(
-    (result: { data: string }) => {
-      if (scannedRef.current || busy) return;
-      scannedRef.current = true;
-      const raw = result.data;
-      void (async () => {
-        setBusy(true);
-        try {
-          if (!isSiliconflowConfigured()) {
-            navigation.replace('AddItem', { preset: presetFromScanWithoutAi(raw) });
-            InteractionManager.runAfterInteractions(() => {
-              Alert.alert(
-                '未配置 AI 密钥',
-                '扫描已成功。内容已写入录入页的「备注」；若需自动识别商品名称/分类，请在项目根目录 .env 中配置 EXPO_PUBLIC_SILICONFLOW_API_KEY 后重启 Metro（npx expo start）。',
-                [{ text: '知道了' }]
-              );
-            });
-            return;
-          }
-
-          let textForAi = raw;
-          if (/^https?:\/\//i.test(raw) || raw.includes('http')) {
-            try {
-              const { html } = await fetchLinkContent(raw);
-              textForAi = html.slice(0, 15000);
-            } catch {
-              textForAi = raw;
-            }
-          }
-          const preset = await parseItemFieldsFromText(textForAi);
-          navigation.replace('AddItem', { preset });
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : '解析失败';
-          InteractionManager.runAfterInteractions(() => {
-            Alert.alert('提示', msg, [
-              {
-                text: '仍要手动录入',
-                onPress: () =>
-                  navigation.replace('AddItem', {
-                    preset: { name: raw.slice(0, 80) },
-                  }),
-              },
-              {
-                text: '留在本页',
-                style: 'cancel',
-                onPress: () => {
-                  scannedRef.current = false;
-                },
-              },
-              {
-                text: '退出扫描',
-                onPress: () => safeLeaveToPreviousOrHome(navigation),
-              },
-            ]);
-          });
-        } finally {
-          setBusy(false);
-        }
-      })();
-    },
-    [busy, navigation]
-  );
+    Alert.alert('提示', '需要相机权限才能拍照。');
+  }, [permission?.granted, requestPermission]);
 
   /** 进入页：与链接录入相同的居中弹窗，仅「拍照」「上传照片」 */
   if (mode === 'chooser') {
@@ -603,7 +532,7 @@ export function ScanEntryScreen() {
             >
               <Text style={pickStyles.primaryBtnText}>上传照片</Text>
             </SpringPressable>
-            <Text style={pickStyles.hint}>扫描条码请先点「拍照」进入相机，将码对准画面即可。</Text>
+            <Text style={pickStyles.hint}>对准物品拍照，或从相册选图后识别。</Text>
           </View>
         </Pressable>
         {busy ? (
@@ -616,7 +545,7 @@ export function ScanEntryScreen() {
     );
   }
 
-  /** 相机模式（拍照识别 + 条码扫描） */
+  /** 相机模式（仅快门拍照识别，不实时扫码） */
   if (!permission) {
     return <View style={styles.center} />;
   }
@@ -624,7 +553,7 @@ export function ScanEntryScreen() {
   if (!permission.granted) {
     return (
       <View style={[styles.center, { paddingTop: insets.top, paddingHorizontal: 24 }]}>
-        <Text style={styles.permText}>需要相机权限以扫描条码或拍照。</Text>
+        <Text style={styles.permText}>需要相机权限才能拍照。</Text>
         <SpringPressable style={styles.permBtn} onPress={() => void requestPermission()} shrink={0.97}>
           <Text style={styles.permBtnText}>授权相机</Text>
         </SpringPressable>
@@ -750,23 +679,6 @@ export function ScanEntryScreen() {
               mode="picture"
               zoom={zoom}
               onCameraReady={() => setCameraReady(true)}
-              barcodeScannerSettings={{
-                barcodeTypes: [
-                  'qr',
-                  'ean13',
-                  'ean8',
-                  'code128',
-                  'code39',
-                  'code93',
-                  'upc_a',
-                  'upc_e',
-                  'pdf417',
-                  'datamatrix',
-                  'codabar',
-                  'itf14',
-                ],
-              }}
-              onBarcodeScanned={onBarcodeScanned}
             />
           </View>
         </GestureDetector>

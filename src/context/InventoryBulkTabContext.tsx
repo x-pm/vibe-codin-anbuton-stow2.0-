@@ -3,9 +3,12 @@ import React, { createContext, useContext, useMemo, useState, type ReactNode } f
 export type InventoryBulkTabBarPayload = {
   summary: string;
   showMove: boolean;
+  /** 多选底栏「新建」：仓库分组/位置 */
+  showCreate?: boolean;
   allVisibleSelected: boolean;
   onSelectAll: () => void;
   onMoveToGroup: () => void;
+  onCreate?: () => void;
   onDelete: () => void;
 };
 

@@ -1,10 +1,11 @@
 /**
- * 默认直角（surface 等 = 0）。
- * 以下为正圆（半径 = 边长/2），用于头像与顶部「Stow」按钮等例外区域。
+ * 毛玻璃按钮/卡片用圆角；正圆仅用于头像等例外。
  */
 export const radius = {
-  surface: 0,
-  square: 0,
+  /** 毛玻璃按钮 / 卡片圆角 */
+  surface: 14,
+  square: 14,
+  glass: 14,
   dot: 0,
   avatar: 0,
   /** 40×40 首页/顶栏头像按钮 */

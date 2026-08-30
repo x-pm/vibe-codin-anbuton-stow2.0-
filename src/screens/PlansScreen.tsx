@@ -13,17 +13,15 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   View,
 } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DoodleCatInline } from '../components/DoodleCatInline';
 import { PlanDatePickerPanel } from '../components/PlanDatePickerPanel';
 import { EasePressable } from '../components/EasePressable';
-import { HeaderBrandMark } from '../components/HeaderBrandMark';
+import { GlassSurface } from '../components/GlassSurface';
 import { HeaderMenuOutlineButton } from '../components/HeaderMenuOutlineButton';
 import { PlansBellAnimatedIcon } from '../components/PlansBellAnimatedIcon';
 import { SpringPressable } from '../components/SpringPressable';
@@ -34,9 +32,10 @@ import { colors } from '../theme/colors';
 import { fonts } from '../theme/fonts';
 import { radius } from '../theme/radius';
 import type { ItemPlan } from '../types/models';
-import { createStowPlanCalendarEvent } from '../services/planCalendarSync';
-import { formatPlanReminderAt, formatTimeOnly, parseISODate } from '../utils/planDates';
+import { formatISODate, formatPlanCardDate } from '../utils/planDates';
 import { getPlanThumbIcon, sortPendingPlansForPreview } from '../utils/planDisplay';
+import { doneReturnKeyProps } from '../utils/inputKeyboard';
+import { playPlanComplete, playSaveSuccess } from '../services/sfx';
 
 const SLIDE_DOWN_PX = Math.min(300, Dimensions.get('window').height * 0.38);
 
@@ -46,6 +45,10 @@ type PlansTaskCardProps = {
   selectedIds: string[];
   togglePlanSelect: (id: string) => void;
   completePlan: (id: string) => void;
+  /** 长按进入多选并选中该项 */
+  enterBulkWithPlan: (id: string) => void;
+  /** 点击卡片进入明细（与新建同一表单） */
+  onOpenDetail: (plan: ItemPlan) => void;
 };
 
 /** 未完成：点圆圈 → 灰字删除线 → 向下滑出淡出 → 标记完成（已完成项仍为静态灰字样式） */
@@ -55,6 +58,8 @@ function PlansTaskCard({
   selectedIds,
   togglePlanSelect,
   completePlan,
+  enterBulkWithPlan,
+  onOpenDetail,
 }: PlansTaskCardProps) {
   const done = !!plan.completed;
   const sel = selectedIds.includes(plan.id);
@@ -81,6 +86,7 @@ function PlansTaskCard({
   const handleComplete = useCallback(() => {
     if (done || bulkMode || animating.current) return;
     animating.current = true;
+    playPlanComplete();
     Animated.sequence([
       Animated.timing(fadeGray, {
         toValue: 1,
@@ -108,7 +114,9 @@ function PlansTaskCard({
     });
   }, [bulkMode, cardOpacity, completePlan, done, fadeGray, plan.id, ty]);
 
-  /** 与普通模式相同布局：标题、标签、完整计划内容及日期后缀；多选时整卡外加 taskCardBulk 变淡 */
+  const dateLabel = formatPlanCardDate(plan);
+
+  /** 与普通模式相同布局：标题 + 类型标签；有日期时靠右显示 */
   const mainInnerStatic = (d: boolean) => (
     <>
       <View style={[styles.taskThumb, { backgroundColor: thumb.boxBg }]}>
@@ -120,28 +128,16 @@ function PlansTaskCard({
             {plan.title}
           </Text>
           <View style={[styles.tagInline, { backgroundColor: plan.tagBg }, d && styles.tagMuted]}>
-            <Text style={[styles.tagText, d && styles.tagTextMuted]}>{plan.tag}</Text>
+            <Text style={[styles.tagText, d && styles.tagTextMuted]}>
+              {plan.tag === '购物' ? '待办' : plan.tag}
+            </Text>
           </View>
         </View>
-        <Text
-          style={[
-            styles.taskDetail,
-            plan.accent === 'danger' && styles.taskDetailDanger,
-            d && styles.taskTextDone,
-          ]}
-          numberOfLines={3}
-        >
-          {plan.detail}
-          {plan.footer ? (
-            <Text style={[styles.taskDetailMeta, d && styles.taskDetailMetaDone]}> · 预计 {plan.footer}</Text>
-          ) : null}
-          {plan.reminderAt != null ? (
-            <Text style={[styles.taskDetailMeta, d && styles.taskDetailMetaDone]}>
-              {' '}
-              · 提醒 {formatPlanReminderAt(plan.reminderAt)}
-            </Text>
-          ) : null}
-        </Text>
+        {dateLabel ? (
+          <Text style={[styles.taskDate, d && styles.taskDateDone]} numberOfLines={1}>
+            {dateLabel}
+          </Text>
+        ) : null}
       </View>
     </>
   );
@@ -149,6 +145,9 @@ function PlansTaskCard({
   if (bulkMode) {
     return (
       <View style={[styles.taskCard, done && styles.taskCardDone]}>
+        {!done ? (
+          <GlassSurface pointerEvents="none" tint="surface" style={StyleSheet.absoluteFillObject} />
+        ) : null}
         <SpringPressable
           pressableStyle={styles.taskCardMainPressable}
           style={[styles.taskCardMain, styles.taskCardBulk]}
@@ -177,7 +176,16 @@ function PlansTaskCard({
   if (done) {
     return (
       <View style={[styles.taskCard, styles.taskCardDone]}>
-        <View style={styles.taskCardMain}>{mainInnerStatic(true)}</View>
+        <SpringPressable
+          pressableStyle={styles.taskCardMainPressable}
+          style={styles.taskCardMain}
+          onPress={() => onOpenDetail(plan)}
+          onLongPress={() => enterBulkWithPlan(plan.id)}
+          delayLongPress={320}
+          shrink={0.99}
+        >
+          {mainInnerStatic(true)}
+        </SpringPressable>
         <Pressable
           style={styles.taskCircleHit}
           disabled
@@ -202,7 +210,15 @@ function PlansTaskCard({
         },
       ]}
     >
-      <View style={styles.taskCardMain}>
+      <GlassSurface pointerEvents="none" tint="surface" style={StyleSheet.absoluteFillObject} />
+      <SpringPressable
+        pressableStyle={styles.taskCardMainPressable}
+        style={styles.taskCardMain}
+        onPress={() => onOpenDetail(plan)}
+        onLongPress={() => enterBulkWithPlan(plan.id)}
+        delayLongPress={320}
+        shrink={0.99}
+      >
         <Animated.View style={[styles.taskThumb, { backgroundColor: thumb.boxBg }, { opacity: iconDim }]}>
           <Ionicons name={thumb.name} size={22} color={thumb.color} />
         </Animated.View>
@@ -221,7 +237,7 @@ function PlansTaskCard({
             </View>
             <View style={styles.tagInlineWrap}>
               <Animated.View style={[styles.tagInline, { backgroundColor: plan.tagBg }, { opacity: baseOpacity }]}>
-                <Text style={styles.tagText}>{plan.tag}</Text>
+                <Text style={styles.tagText}>{plan.tag === '购物' ? '待办' : plan.tag}</Text>
               </Animated.View>
               <Animated.View
                 style={[
@@ -231,31 +247,22 @@ function PlansTaskCard({
                   { opacity: doneOpacity },
                 ]}
               >
-                <Text style={[styles.tagText, styles.tagTextMuted]}>{plan.tag}</Text>
+                <Text style={[styles.tagText, styles.tagTextMuted]}>
+                  {plan.tag === '购物' ? '待办' : plan.tag}
+                </Text>
               </Animated.View>
             </View>
           </View>
-          <View style={styles.taskDetailStack}>
-            <Animated.View style={{ opacity: baseOpacity }}>
-              <Text
-                style={[styles.taskDetail, plan.accent === 'danger' && styles.taskDetailDanger]}
-                numberOfLines={3}
-              >
-                {plan.detail}
-                {plan.footer ? <Text style={styles.taskDetailMeta}> · 预计 {plan.footer}</Text> : null}
-              </Text>
-            </Animated.View>
-            <Animated.View style={[styles.taskDetailAbsOverlay, { opacity: doneOpacity }]}>
-              <Text style={[styles.taskDetail, styles.taskTextDone]} numberOfLines={3}>
-                {plan.detail}
-                {plan.footer ? (
-                  <Text style={[styles.taskDetailMeta, styles.taskDetailMetaDone]}> · 预计 {plan.footer}</Text>
-                ) : null}
-              </Text>
-            </Animated.View>
-          </View>
+          {dateLabel ? (
+            <Animated.Text
+              style={[styles.taskDate, { opacity: baseOpacity }]}
+              numberOfLines={1}
+            >
+              {dateLabel}
+            </Animated.Text>
+          ) : null}
         </View>
-      </View>
+      </SpringPressable>
       <EasePressable
         pressableStyle={styles.taskCircleHit}
         style={styles.taskCircleHit}
@@ -296,8 +303,8 @@ const PLAN_TYPE_META: Record<
   PlanKind,
   { label: string; tag: string; tagBg: string; accent?: 'danger' }
 > = {
-  shopping: { label: '购物', tag: '购物', tagBg: '#F5E6A8' },
-  expiry: { label: '过期提醒', tag: '过期提醒', tagBg: '#FAD4D4', accent: 'danger' },
+  shopping: { label: '待办', tag: '待办', tagBg: '#E6D9B0' },
+  expiry: { label: '过期提醒', tag: '过期提醒', tagBg: '#E0C4C4', accent: 'danger' },
 };
 
 export function PlansScreen() {
@@ -309,28 +316,12 @@ export function PlansScreen() {
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [addOpen, setAddOpen] = useState(false);
+  /** 非空时为编辑已有事项；保存可选「新建」或「覆盖」 */
+  const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
   const [planKind, setPlanKind] = useState<PlanKind>('shopping');
   const [planExpectedTime, setPlanExpectedTime] = useState('');
   const [planDetail, setPlanDetail] = useState('');
   const [datePickerOpen, setDatePickerOpen] = useState(false);
-  /** 在已选预计日期的前提下，是否写入系统日历并提醒 */
-  const [reminderEnabled, setReminderEnabled] = useState(false);
-  const [reminderUseCustomTime, setReminderUseCustomTime] = useState(false);
-  const [reminderClock, setReminderClock] = useState(() => {
-    const d = new Date();
-    d.setHours(12, 0, 0, 0);
-    return d;
-  });
-  /** iOS 滚轮上的时刻；确认后写入 reminderClock 并展示文案 */
-  const [reminderTimeDraft, setReminderTimeDraft] = useState(() => {
-    const d = new Date();
-    d.setHours(12, 0, 0, 0);
-    return d;
-  });
-  const [customTimeConfirmedText, setCustomTimeConfirmedText] = useState('');
-  /** iOS：确认后隐藏滚轮，仅展示「已选择」；点「修改时刻」再展开 */
-  const [iosTimeWheelVisible, setIosTimeWheelVisible] = useState(true);
-  const [timePickerOpen, setTimePickerOpen] = useState(false);
   const [planSortAnchor, setPlanSortAnchor] = useState(() => new Date());
 
   useFocusEffect(
@@ -355,6 +346,11 @@ export function PlansScreen() {
 
   const togglePlanSelect = useCallback((id: string) => {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }, []);
+
+  const enterBulkWithPlan = useCallback((id: string) => {
+    setBulkMode(true);
+    setSelectedIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
   }, []);
 
   const allVisibleSelected = useMemo(() => {
@@ -422,24 +418,41 @@ export function PlansScreen() {
     return () => setPayload(null);
   }, [setPayload]);
 
+  const resetPlanFormUi = () => {
+    setDatePickerOpen(false);
+  };
+
+  const closePlanModal = () => {
+    resetPlanFormUi();
+    setEditingPlanId(null);
+    setAddOpen(false);
+  };
+
   const openAddModal = () => {
+    setEditingPlanId(null);
     setPlanKind('shopping');
     setPlanExpectedTime('');
     setPlanDetail('');
-    setDatePickerOpen(false);
-    setReminderEnabled(false);
-    setReminderUseCustomTime(false);
-    setTimePickerOpen(false);
-    const c = new Date();
-    c.setHours(12, 0, 0, 0);
-    setReminderClock(c);
-    setReminderTimeDraft(c);
-    setCustomTimeConfirmedText('');
-    setIosTimeWheelVisible(true);
+    resetPlanFormUi();
     setAddOpen(true);
   };
 
-  const submitPlan = () => {
+  const openEditModal = useCallback(
+    (plan: ItemPlan) => {
+      setEditingPlanId(plan.id);
+      setPlanKind(plan.tag === '过期提醒' ? 'expiry' : 'shopping');
+      setPlanExpectedTime(plan.footer?.trim() ?? '');
+      setPlanDetail(plan.detail ?? '');
+      if (!plan.footer?.trim() && typeof plan.reminderAt === 'number' && plan.reminderAt > 0) {
+        setPlanExpectedTime(formatISODate(new Date(plan.reminderAt)));
+      }
+      setDatePickerOpen(false);
+      setAddOpen(true);
+    },
+    []
+  );
+
+  const submitPlan = (mode: 'create' | 'asNew' | 'overwrite') => {
     const detail = planDetail.trim();
     if (!detail) {
       Alert.alert('提示', '请填写计划具体内容');
@@ -452,68 +465,39 @@ export function PlansScreen() {
     const footer = planExpectedTime.trim();
     const meta = PLAN_TYPE_META[planKind];
 
-    let reminderAt: number | undefined;
-    if (reminderEnabled && planExpectedTime.trim()) {
-      const day = parseISODate(planExpectedTime);
-      if (day) {
-        const t = new Date(day);
-        if (reminderUseCustomTime) {
-          const src = Platform.OS === 'ios' ? reminderTimeDraft : reminderClock;
-          t.setHours(src.getHours(), src.getMinutes(), 0, 0);
-        } else {
-          t.setHours(12, 0, 0, 0);
-        }
-        reminderAt = t.getTime();
-      }
+    if (mode === 'overwrite' && editingPlanId) {
+      updatePlan(editingPlanId, {
+        title: titleFromDetail,
+        detail,
+        footer,
+        tag: meta.tag,
+        tagBg: meta.tagBg,
+        accent: meta.accent,
+        reminderAt: undefined,
+        externalCalendarEventId: undefined,
+      });
+      playSaveSuccess();
+      closePlanModal();
+      return;
     }
 
-    const newId = addPlan({
+    addPlan({
       title: titleFromDetail,
       detail,
       footer,
       tag: meta.tag,
       tagBg: meta.tagBg,
       accent: meta.accent,
-      reminderAt,
     });
-
-    if (reminderAt != null) {
-      void (async () => {
-        const ext = await createStowPlanCalendarEvent({
-          title: `【STOW】${titleFromDetail}`,
-          notes: detail,
-          start: new Date(reminderAt!),
-        });
-        if (ext) {
-          updatePlan(newId, { externalCalendarEventId: ext });
-        } else {
-          Alert.alert(
-            '未能写入系统日历',
-            Platform.OS === 'ios'
-              ? '计划已保存在 STOW 内。\n\n• 请到「设置 → 隐私与安全性 → 日历」中允许 STOW；iOS 17 起若系统提供「完全访问日历」，请选完全访问以便写入。\n• 提醒依赖系统「日历」的通知，请到「设置 → 通知 → 日历」打开允许通知。\n• 若使用 Expo Go 扫码运行，日历写入常不可用，请用 Mac 执行 npx expo run:ios 安装到本机后再试。'
-              : '计划已保存在 STOW 内。请到系统设置中为 STOW 开启「日历」读写权限，并确认本机已登录可编辑的日历账户；完成后再试。',
-            [{ text: '知道了' }]
-          );
-        }
-      })();
-    }
-
-    setDatePickerOpen(false);
-    setTimePickerOpen(false);
-    setIosTimeWheelVisible(true);
-    setAddOpen(false);
+    playSaveSuccess();
+    closePlanModal();
   };
 
   return (
     <View style={[styles.root, { paddingTop: insets.top + 8 }]}>
-      <View style={styles.topRow}>
-        <HeaderMenuOutlineButton />
-        <Text style={styles.logo}>STOW</Text>
-        <HeaderBrandMark onPress={() => navigation.navigate('ProfileTab')} />
-      </View>
-
       <View style={styles.titleRow}>
         <View style={styles.titleRowLeft}>
+          <HeaderMenuOutlineButton />
           <PlansBellAnimatedIcon size={30} />
           <Text style={styles.title}>物品计划</Text>
         </View>
@@ -534,7 +518,12 @@ export function PlansScreen() {
         <View style={styles.sectionRow}>
           <Text style={styles.sectionTitle}>待办事项</Text>
           {bulkMode ? (
-            <SpringPressable onPress={exitBulkMode} style={styles.sectionGearBtn} shrink={0.95}>
+            <SpringPressable
+              onPress={exitBulkMode}
+              style={styles.doneBulkBtn}
+              shrink={0.95}
+              accessibilityLabel="完成多选"
+            >
               <Text style={styles.doneBulkText}>完成</Text>
             </SpringPressable>
           ) : (
@@ -542,9 +531,11 @@ export function PlansScreen() {
               onPress={() => setBulkMode(true)}
               style={styles.sectionGearBtn}
               shrink={0.92}
-              accessibilityLabel="批量管理"
+              accessibilityLabel="管理，批量操作"
             >
-              <Ionicons name="cog-outline" size={22} color={colors.text} />
+              <GlassSurface pointerEvents="none" tint="surface" style={StyleSheet.absoluteFillObject} />
+              <Text style={styles.sectionGearBtnText}>管理</Text>
+              <Ionicons name="cog-outline" size={18} color={colors.textOnGlass} />
             </SpringPressable>
           )}
         </View>
@@ -557,6 +548,8 @@ export function PlansScreen() {
             selectedIds={selectedIds}
             togglePlanSelect={togglePlanSelect}
             completePlan={completePlan}
+            enterBulkWithPlan={enterBulkWithPlan}
+            onOpenDetail={openEditModal}
           />
         ))}
       </ScrollView>
@@ -566,11 +559,8 @@ export function PlansScreen() {
         transparent
         animationType="fade"
         onRequestClose={() => {
-          setDatePickerOpen(false);
-          setTimePickerOpen(false);
-          setCustomTimeConfirmedText('');
-          setIosTimeWheelVisible(true);
-          setAddOpen(false);
+          if (datePickerOpen) setDatePickerOpen(false);
+          else closePlanModal();
         }}
       >
         <KeyboardAvoidingView
@@ -581,12 +571,7 @@ export function PlansScreen() {
             style={styles.modalBackdrop}
             onPress={() => {
               if (datePickerOpen) setDatePickerOpen(false);
-              else if (timePickerOpen) setTimePickerOpen(false);
-              else {
-                setCustomTimeConfirmedText('');
-                setIosTimeWheelVisible(true);
-                setAddOpen(false);
-              }
+              else closePlanModal();
             }}
           />
           <View style={[styles.modalCard, { paddingBottom: 16 + insets.bottom }]}>
@@ -597,7 +582,7 @@ export function PlansScreen() {
               nestedScrollEnabled
               contentContainerStyle={styles.modalScrollContent}
             >
-            <Text style={styles.modalTitle}>新增计划</Text>
+            <Text style={styles.modalTitle}>{editingPlanId ? '计划明细' : '新增计划'}</Text>
             <Text style={styles.modalLabel}>计划类型（必选）</Text>
             <View style={styles.typeRow}>
               {(Object.keys(PLAN_TYPE_META) as PlanKind[]).map((k) => {
@@ -616,9 +601,6 @@ export function PlansScreen() {
               })}
             </View>
             <Text style={styles.modalLabel}>预计时间（可选）</Text>
-            <Text style={styles.reminderHintText}>
-              打开「是否提醒」后，会在系统日历中创建日程并在该时间提醒；须先选择下方预计日期。未指定具体时刻时，默认当天 12:00。
-            </Text>
             <View style={styles.dateFieldWrap}>
               <EasePressable
                 pressableStyle={styles.dateField}
@@ -652,147 +634,10 @@ export function PlansScreen() {
                     onClear={() => {
                       setPlanExpectedTime('');
                       setDatePickerOpen(false);
-                      setReminderEnabled(false);
-                      setReminderUseCustomTime(false);
-                      setTimePickerOpen(false);
-                      setCustomTimeConfirmedText('');
-                      setIosTimeWheelVisible(true);
                     }}
                   />
                 </View>
               ) : null}
-            </View>
-            <View style={styles.reminderTimeBlock}>
-              <View style={styles.reminderTimeSwitchRow}>
-                <Text style={styles.reminderTimeLabel}>是否提醒（同步系统日历）</Text>
-                <Switch
-                  value={reminderEnabled}
-                  disabled={!planExpectedTime.trim()}
-                  onValueChange={(v) => {
-                    setReminderEnabled(v);
-                    if (!v) {
-                      setReminderUseCustomTime(false);
-                      setTimePickerOpen(false);
-                      setCustomTimeConfirmedText('');
-                      setIosTimeWheelVisible(true);
-                    }
-                  }}
-                  trackColor={{ false: colors.border, true: colors.primary }}
-                  thumbColor={colors.surface}
-                  ios_backgroundColor={colors.border}
-                  accessibilityLabel="是否提醒，同步系统日历"
-                />
-              </View>
-              {!planExpectedTime.trim() ? (
-                <Text style={styles.reminderNeedDateText}>
-                  请先在上面的「预计时间」里选择日期，再打开本开关；否则无法写入日历。
-                </Text>
-              ) : null}
-              {planExpectedTime.trim() && reminderEnabled ? (
-                  <>
-                    <View style={[styles.reminderTimeSwitchRow, styles.reminderSubSwitchRow]}>
-                      <Text style={styles.reminderTimeLabelSecondary}>指定具体时刻</Text>
-                      <Switch
-                        value={reminderUseCustomTime}
-                        onValueChange={(v) => {
-                          setReminderUseCustomTime(v);
-                          setCustomTimeConfirmedText('');
-                          setIosTimeWheelVisible(true);
-                          if (v) {
-                            const base = new Date(reminderClock);
-                            setReminderTimeDraft(base);
-                            if (Platform.OS === 'android') setTimePickerOpen(true);
-                          } else {
-                            setTimePickerOpen(false);
-                          }
-                        }}
-                        trackColor={{ false: colors.border, true: colors.primary }}
-                        thumbColor={colors.surface}
-                        ios_backgroundColor={colors.border}
-                        accessibilityLabel="指定具体时刻"
-                      />
-                    </View>
-                    {!reminderUseCustomTime ? (
-                      <Text style={styles.reminderNoonText}>未指定时刻时，将使用所选日期当天 12:00</Text>
-                    ) : Platform.OS === 'ios' ? (
-                      <View style={styles.iosTimePickWrap}>
-                        {iosTimeWheelVisible ? (
-                          <>
-                            <DateTimePicker
-                              value={reminderTimeDraft}
-                              mode="time"
-                              display="spinner"
-                              onChange={(_e, d) => d && setReminderTimeDraft(d)}
-                            />
-                            <SpringPressable
-                              style={styles.timeConfirmBtn}
-                              onPress={() => {
-                                const next = new Date(reminderTimeDraft);
-                                setReminderClock(next);
-                                setCustomTimeConfirmedText(`已选择 ${formatTimeOnly(next)}`);
-                                setIosTimeWheelVisible(false);
-                              }}
-                              shrink={0.98}
-                              accessibilityRole="button"
-                              accessibilityLabel="确认所选时刻"
-                            >
-                              <Text style={styles.timeConfirmBtnText}>确认</Text>
-                            </SpringPressable>
-                          </>
-                        ) : (
-                          <View style={styles.iosTimeDoneRow}>
-                            <Text style={styles.customTimeConfirmed}>
-                              {customTimeConfirmedText || `已选择 ${formatTimeOnly(reminderClock)}`}
-                            </Text>
-                            <SpringPressable
-                              style={styles.timeChangeBtn}
-                              onPress={() => {
-                                setReminderTimeDraft(new Date(reminderClock));
-                                setIosTimeWheelVisible(true);
-                                setCustomTimeConfirmedText('');
-                              }}
-                              shrink={0.98}
-                              accessibilityRole="button"
-                              accessibilityLabel="修改时刻"
-                            >
-                              <Text style={styles.timeChangeBtnText}>修改时刻</Text>
-                            </SpringPressable>
-                          </View>
-                        )}
-                      </View>
-                    ) : (
-                      <View>
-                        <SpringPressable
-                          style={styles.timePickBtn}
-                          onPress={() => setTimePickerOpen(true)}
-                          shrink={0.98}
-                        >
-                          <Text style={styles.timePickBtnText}>{formatTimeOnly(reminderClock)}</Text>
-                          <Ionicons name="time-outline" size={20} color={colors.text} />
-                        </SpringPressable>
-                        {customTimeConfirmedText ? (
-                          <Text style={styles.customTimeConfirmed}>{customTimeConfirmedText}</Text>
-                        ) : null}
-                        {timePickerOpen ? (
-                          <DateTimePicker
-                            value={reminderClock}
-                            mode="time"
-                            is24Hour
-                            display="default"
-                            onChange={(_e, d) => {
-                              if (Platform.OS === 'android') setTimePickerOpen(false);
-                              if (d) {
-                                setReminderClock(d);
-                                setReminderTimeDraft(d);
-                                setCustomTimeConfirmedText(`已选择 ${formatTimeOnly(d)}`);
-                              }
-                            }}
-                          />
-                        ) : null}
-                      </View>
-                    )}
-                  </>
-                ) : null}
             </View>
             <Text style={styles.modalLabel}>计划内容（必填）</Text>
             <TextInput
@@ -803,24 +648,38 @@ export function PlansScreen() {
               onChangeText={setPlanDetail}
               multiline
               textAlignVertical="top"
+              {...doneReturnKeyProps}
             />
             <View style={styles.modalActions}>
-              <SpringPressable
-                style={styles.modalBtnGhost}
-                onPress={() => {
-                  setDatePickerOpen(false);
-                  setTimePickerOpen(false);
-                  setCustomTimeConfirmedText('');
-                  setIosTimeWheelVisible(true);
-                  setAddOpen(false);
-                }}
-                shrink={0.96}
-              >
+              <SpringPressable style={styles.modalBtnGhost} onPress={closePlanModal} shrink={0.96}>
                 <Text style={styles.modalBtnGhostText}>取消</Text>
               </SpringPressable>
-              <SpringPressable style={styles.modalBtnPrimary} onPress={submitPlan} shrink={0.96}>
-                <Text style={styles.modalBtnPrimaryText}>保存</Text>
-              </SpringPressable>
+              {editingPlanId ? (
+                <>
+                  <SpringPressable
+                    style={styles.modalBtnPrimary}
+                    onPress={() => submitPlan('asNew')}
+                    shrink={0.96}
+                  >
+                    <Text style={styles.modalBtnPrimaryText}>新建</Text>
+                  </SpringPressable>
+                  <SpringPressable
+                    style={styles.modalBtnPrimary}
+                    onPress={() => submitPlan('overwrite')}
+                    shrink={0.96}
+                  >
+                    <Text style={styles.modalBtnPrimaryText}>覆盖</Text>
+                  </SpringPressable>
+                </>
+              ) : (
+                <SpringPressable
+                  style={styles.modalBtnPrimary}
+                  onPress={() => submitPlan('create')}
+                  shrink={0.96}
+                >
+                  <Text style={styles.modalBtnPrimaryText}>保存</Text>
+                </SpringPressable>
+              )}
             </View>
             </ScrollView>
           </View>
@@ -831,23 +690,9 @@ export function PlansScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg, paddingHorizontal: 20 },
-  topRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  logo: {
-    flex: 1,
-    textAlign: 'center',
-    fontFamily: fonts.bold,
-    fontSize: 22,
-    letterSpacing: 3,
-    color: colors.text,
-  },
+  root: { flex: 1, backgroundColor: 'transparent', paddingHorizontal: 20 },
   titleRow: {
-    marginTop: 4,
+    marginBottom: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -863,14 +708,38 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 28, fontFamily: fonts.extraBold, color: colors.text },
   sectionGearBtn: {
-    minWidth: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
     minHeight: 40,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    flexShrink: 0,
+    overflow: 'hidden',
+    borderRadius: radius.surface,
+  },
+  sectionGearBtnText: {
+    fontSize: 14,
+    fontFamily: fonts.semiBold,
+    color: colors.textOnGlass,
+  },
+  doneBulkBtn: {
+    minHeight: 36,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: radius.surface,
+    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
   },
-  doneBulkText: { fontSize: 13, fontFamily: fonts.bold, color: colors.primary },
-  scroll: { paddingBottom: 32 },
+  doneBulkText: {
+    fontSize: 15,
+    fontFamily: fonts.extraBold,
+    color: colors.onPrimary,
+  },
+  scroll: { paddingBottom: 100 },
   sectionRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -879,20 +748,19 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   sectionTitle: { fontSize: 18, fontFamily: fonts.bold, color: colors.text },
-  /** 与首页 planRow / planIconBox 对齐 */
+  /** 与首页 planRow / planIconBox 对齐；主区域整块可点，右侧圆圈单独点 */
   taskCard: {
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.surface,
+    alignItems: 'stretch',
+    backgroundColor: 'transparent',
     borderRadius: radius.surface,
-    padding: 14,
+    paddingRight: 8,
     marginBottom: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: 4,
+    gap: 0,
+    overflow: 'hidden',
   },
   taskCardDone: {
-    backgroundColor: '#F3F3F3',
+    backgroundColor: 'rgba(243, 243, 243, 0.85)',
     borderColor: '#E4E4E4',
   },
   /** 多选：左侧名片区域变淡（与仓库 tileBulk 一致）；勾选框在同排右侧，不参与变淡 */
@@ -900,10 +768,16 @@ const styles = StyleSheet.create({
   taskCardMainPressable: {
     flex: 1,
     minWidth: 0,
+    alignSelf: 'stretch',
+    paddingVertical: 14,
+    paddingLeft: 14,
+    paddingRight: 8,
+    justifyContent: 'center',
   },
   taskCardMain: {
     flex: 1,
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 12,
     minWidth: 0,
   },
@@ -915,12 +789,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  taskBody: { flex: 1 },
+  taskBody: { flex: 1, minWidth: 0, justifyContent: 'center' },
   taskTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 4,
+    marginBottom: 0,
   },
   taskTitleStackFlex: {
     flex: 1,
@@ -944,10 +818,18 @@ const styles = StyleSheet.create({
     left: 0,
     top: 0,
   },
-  tagText: { fontSize: 11, fontFamily: fonts.semiBold, color: colors.text },
+  tagText: { fontSize: 11, fontFamily: fonts.semiBold, color: colors.textOnGlass },
   tagMuted: { opacity: 0.75 },
-  tagTextMuted: { color: colors.textMuted },
-  taskTitle: { fontSize: 16, fontFamily: fonts.bold, color: colors.text },
+  tagTextMuted: { color: colors.textOnGlassMuted },
+  taskTitle: { flex: 1, minWidth: 0, fontSize: 16, fontFamily: fonts.bold, color: colors.text },
+  taskDate: {
+    marginTop: 4,
+    fontSize: 13,
+    fontFamily: fonts.semiBold,
+    color: colors.text,
+    opacity: 0.85,
+  },
+  taskDateDone: { color: colors.textLight },
   taskTitleDoneOverlay: {
     position: 'absolute',
     left: 0,
@@ -988,11 +870,13 @@ const styles = StyleSheet.create({
   },
   /** 多选时勾选框固定在卡片最右侧 */
   taskBulkCheckboxHit: {
-    paddingLeft: 10,
-    paddingVertical: 4,
+    paddingLeft: 4,
+    paddingRight: 6,
+    paddingVertical: 14,
     justifyContent: 'center',
     alignItems: 'center',
     flexShrink: 0,
+    alignSelf: 'stretch',
   },
   /** 批量：右侧圆形勾选，与单条完成态一致 */
   bulkRadioOuter: {
@@ -1009,12 +893,15 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
     backgroundColor: colors.primary,
   },
-  /** 与首页 HomeScreen planCompleteCircle 一致 */
+  /** 与首页 HomeScreen planCompleteCircle 一致；仅圆圈完成，不进编辑 */
   taskCircleHit: {
-    paddingLeft: 6,
-    paddingVertical: 2,
+    paddingLeft: 4,
+    paddingRight: 6,
+    paddingVertical: 14,
     justifyContent: 'center',
     alignItems: 'center',
+    flexShrink: 0,
+    alignSelf: 'stretch',
   },
   taskOutlineCircle: {
     width: 22,
@@ -1052,16 +939,14 @@ const styles = StyleSheet.create({
   modalRoot: { flex: 1, justifyContent: 'flex-end' },
   modalBackdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: 'rgba(0,0,0,0.55)',
   },
   modalCard: {
-    backgroundColor: colors.surface,
+    backgroundColor: colors.modalCardBg,
     borderTopLeftRadius: radius.surface,
     borderTopRightRadius: radius.surface,
     paddingHorizontal: 20,
     paddingTop: 18,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
     zIndex: 2,
     elevation: 8,
     overflow: 'visible',
@@ -1069,22 +954,36 @@ const styles = StyleSheet.create({
   },
   modalScroll: { flexGrow: 0 },
   modalScrollContent: { paddingBottom: 12 },
-  modalTitle: { fontSize: 18, fontFamily: fonts.extraBold, color: colors.text, marginBottom: 16 },
-  modalLabel: { fontSize: 13, fontFamily: fonts.bold, color: colors.text, marginBottom: 8 },
+  modalTitle: {
+    fontSize: 18,
+    fontFamily: fonts.extraBold,
+    color: colors.modalCardText,
+    marginBottom: 16,
+  },
+  modalLabel: {
+    fontSize: 13,
+    fontFamily: fonts.bold,
+    color: colors.modalCardText,
+    marginBottom: 8,
+  },
   typeRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
   typeChip: {
     paddingVertical: 10,
     paddingHorizontal: 16,
     borderRadius: radius.surface,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.bg,
+    borderColor: 'rgba(58, 74, 90, 0.2)',
+    backgroundColor: '#fff',
   },
   typeChipActive: {
     backgroundColor: colors.primary,
     borderColor: colors.primary,
   },
-  typeChipText: { fontSize: 14, fontFamily: fonts.semiBold, color: colors.text },
+  typeChipText: {
+    fontSize: 14,
+    fontFamily: fonts.semiBold,
+    color: colors.modalCardText,
+  },
   typeChipTextActive: { color: colors.onPrimary },
   dateFieldWrap: {
     alignSelf: 'stretch',
@@ -1095,128 +994,58 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: 'rgba(58, 74, 90, 0.18)',
     borderRadius: radius.surface,
     paddingHorizontal: 14,
     paddingVertical: 14,
     minHeight: 52,
-    backgroundColor: colors.bg,
+    backgroundColor: '#fff',
   },
   dateFieldText: {
     fontSize: 16,
     fontFamily: fonts.semiBold,
-    color: colors.text,
+    color: colors.modalCardText,
     flex: 1,
     marginRight: 10,
     lineHeight: 22,
   },
-  dateFieldPlaceholder: { fontFamily: fonts.medium, color: colors.textLight },
+  dateFieldPlaceholder: { fontFamily: fonts.medium, color: colors.modalCardMuted },
   /** 随 ScrollView 内容向下展开，避免绝对定位被裁切 */
   datePopover: {
     marginTop: 10,
     alignSelf: 'stretch',
   },
-  reminderHintText: {
-    fontSize: 12,
-    fontFamily: fonts.medium,
-    color: colors.textMuted,
-    lineHeight: 18,
-    marginTop: -4,
-    marginBottom: 8,
-  },
-  reminderTimeBlock: {
-    marginTop: 4,
-    marginBottom: 12,
-  },
-  reminderNeedDateText: {
-    fontSize: 13,
-    fontFamily: fonts.medium,
-    color: colors.textMuted,
-    lineHeight: 19,
-    marginBottom: 4,
-  },
-  reminderTimeSwitchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 6,
-  },
-  reminderSubSwitchRow: {
-    marginTop: 4,
-    paddingLeft: 4,
-  },
-  reminderTimeLabel: { fontSize: 15, fontFamily: fonts.semiBold, color: colors.text },
-  reminderTimeLabelSecondary: { fontSize: 14, fontFamily: fonts.semiBold, color: colors.textMuted },
-  reminderNoonText: {
-    fontSize: 14,
-    fontFamily: fonts.medium,
-    color: colors.textMuted,
-  },
-  timePickBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.surface,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    backgroundColor: colors.bg,
-  },
-  timePickBtnText: { fontSize: 16, fontFamily: fonts.semiBold, color: colors.text },
-  iosTimePickWrap: { alignSelf: 'stretch', marginTop: 4 },
-  iosTimeDoneRow: {
-    alignSelf: 'stretch',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 8,
-  },
-  timeConfirmBtn: {
-    alignSelf: 'stretch',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: radius.surface,
-    backgroundColor: colors.primary,
-    marginBottom: 8,
-  },
-  timeConfirmBtnText: { fontSize: 15, fontFamily: fonts.bold, color: colors.onPrimary },
-  customTimeConfirmed: {
-    fontSize: 15,
-    fontFamily: fonts.semiBold,
-    color: colors.primary,
-    textAlign: 'center',
-  },
-  timeChangeBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: radius.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.bg,
-  },
-  timeChangeBtnText: { fontSize: 14, fontFamily: fonts.semiBold, color: colors.text },
   modalInput: {
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: 'rgba(58, 74, 90, 0.18)',
     borderRadius: radius.surface,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
-    color: colors.text,
+    color: colors.modalCardText,
     marginBottom: 14,
-    backgroundColor: colors.bg,
+    backgroundColor: '#fff',
   },
   modalTextArea: { minHeight: 100, marginBottom: 18 },
-  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12 },
+  modalActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: 12,
+  },
   modalBtnGhost: {
     paddingVertical: 10,
     paddingHorizontal: 18,
     borderRadius: radius.surface,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: 'rgba(58, 74, 90, 0.2)',
+    backgroundColor: '#fff',
   },
-  modalBtnGhostText: { fontSize: 15, fontFamily: fonts.semiBold, color: colors.text },
+  modalBtnGhostText: {
+    fontSize: 15,
+    fontFamily: fonts.semiBold,
+    color: colors.modalCardText,
+  },
   modalBtnPrimary: {
     paddingVertical: 10,
     paddingHorizontal: 20,

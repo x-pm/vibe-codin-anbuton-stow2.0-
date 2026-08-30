@@ -1,8 +1,10 @@
 # STOW
 
-面向个人及小型团队的 **物品收纳与计划提醒** 应用，基于 React Native 与 [Expo](https://expo.dev) 构建。主要功能包括：首页概览、按仓库浏览物品、多种录入方式（手动录入、链接解析、扫码与拍照识别）、计划待办管理，以及可选的系统日历同步与数据导出。
+面向个人及小型团队的 **物品收纳与计划** 应用，基于 React Native 与 [Expo](https://expo.dev) 构建。主要功能包括：首页概览、按仓库浏览物品、多种录入方式（手动录入、链接解析、扫码与拍照识别）、计划待办管理，以及数据导出。
 
-> 代码仓库：<https://github.com/x-pm/STOW>
+> 代码仓库：<https://github.com/x-pm/STOW>  
+> **App Store 下载**：[俺不囤](https://apps.apple.com/cn/app/%E4%BF%BA%E4%B8%8D%E5%9B%A4/id6802397132)  
+> **演示视频**：见仓库内 [`docs/review-hosting/app-review-demo.mp4`](docs/review-hosting/app-review-demo.mp4)，或打开 [`docs/review-hosting/app-review-demo.html`](docs/review-hosting/app-review-demo.html) 在线播放。
 
 ---
 
@@ -67,24 +69,52 @@ npm install
 ### 1. 启动开发服务器
 
 ```bash
-npx expo start
+npm run start
 ```
 
+默认使用 **`--lan`**，让手机能访问电脑上的 Metro（勿用仅本机的 `127.0.0.1`）。
+
 在终端中按 `a` / `i` 可尝试启动 Android 或 iOS 模拟器（需本机已安装并配置对应开发环境）。
+
+**Expo Go 一直显示 “Opening project” 超时？**
+
+1. 先停掉旧 Metro，再执行 `npm run start:clear`，重新扫码。
+2. 手机 Safari 打开 `http://<电脑局域网IP>:8081/status`，应看到 `packager-status:running`；打不开则是网络/防火墙问题。
+3. 本机若开着 **Clash / VPN**：开发时关闭 TUN/系统代理，或为 `10.0.0.0/8` 设直连（否则 8081 可能被代理走）。
+4. 在 `.env` 中设置 `REACT_NATIVE_PACKAGER_HOSTNAME=你的IPv4`（`ipconfig` 查看 WLAN 地址）。
+5. Metro 已启动时可在另一终端运行 `npm run dev:check`，确认 manifest 未指向 `127.0.0.1`。
+6. 仍失败用隧道：`npm run start:tunnel`。
 
 ### 2. 真机预览（局域网，Expo Go）
 
 确保移动设备与开发机处于同一无线网络，打开 Expo Go，扫描终端中显示的二维码。
 
-### 3. 真机预览（隧道模式）
-
-当设备与开发机不在同一局域网时，可执行：
+### 3. 真机预览（隧道模式，校园网常失败）
 
 ```bash
 npm run start:tunnel
 ```
 
-使用隧道模式生成的二维码进行连接（网络延迟可能略高于局域网）。
+需已安装 `@expo/ngrok`。若出现 `failed to start tunnel`、`remote gone away`、`session closed`，说明 **ngrok 服务连不上**（国内网络或代理常见），请改用下面第 4、5 节。
+
+### 4. 真机预览（手机热点，推荐）
+
+校园/公司 Wi‑Fi（如 `10.141.x.x`）往往 **禁止手机访问电脑**，隧道也失败时：
+
+1. 手机开启 **个人热点**，电脑连该热点（不要连校园 Wi‑Fi）。
+2. 电脑 `ipconfig` 查看新 IPv4（多为 `192.168.x.x`）。
+3. 可选：在 `.env` 取消注释 `REACT_NATIVE_PACKAGER_HOSTNAME=新IP`。
+4. `npm run start:clear`，手机浏览器打开 `http://新IP:8081/status` 应显示 `packager-status:running`。
+5. Expo Go 扫终端二维码。
+
+### 5. 真机预览（Android + USB）
+
+```bash
+adb reverse tcp:8081 tcp:8081
+npm run start:android-usb
+```
+
+USB 连接并开启调试后，Expo Go 扫二维码即可（不依赖 Wi‑Fi 互访）。
 
 ### 4. Web 预览
 
@@ -92,7 +122,7 @@ npm run start:tunnel
 npm run web
 ```
 
-适用于快速查看界面；部分原生能力（如相机、系统日历等）在浏览器中与真机表现可能不一致。
+适用于快速查看界面；部分原生能力（如相机）在浏览器中与真机表现可能不一致。
 
 ### 5. 原生工程（可选）
 

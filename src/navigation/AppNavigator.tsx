@@ -3,7 +3,7 @@ import {
   createBottomTabNavigator,
   type BottomTabBarProps,
 } from '@react-navigation/bottom-tabs';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import React from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
@@ -11,6 +11,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../theme/colors';
 import { fonts } from '../theme/fonts';
 import { EasePressable } from '../components/EasePressable';
+import { AppAtmosphere } from '../components/AppAtmosphere';
+import { GlassSurface } from '../components/GlassSurface';
 import { SpringPressable } from '../components/SpringPressable';
 import { HomeScreen } from '../screens/HomeScreen';
 import { InventoryScreen } from '../screens/InventoryScreen';
@@ -21,14 +23,29 @@ import { AddItemScreen } from '../screens/AddItemScreen';
 import { InventoryGroupScreen } from '../screens/InventoryGroupScreen';
 import { ScanEntryScreen } from '../screens/ScanEntryScreen';
 import { LinkEntryScreen } from '../screens/LinkEntryScreen';
-import { StaticInfoScreen } from '../screens/StaticInfoScreen';
+import { LegalTextScreen } from '../screens/LegalTextScreen';
 import { DataExportScreen } from '../screens/DataExportScreen';
 import { EditProfileScreen } from '../screens/EditProfileScreen';
+import { AuthLoginScreen } from '../screens/AuthLoginScreen';
 import type { MainTabParamList, RootStackParamList } from './types';
 import { InventoryBulkTabProvider, useInventoryBulkTab } from '../context/InventoryBulkTabContext';
 import { TabScreenFadeIn } from '../components/TabScreenFadeIn';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
+const Stack = createNativeStackNavigator<RootStackParamList>();
+
+const navTheme = {
+  ...DefaultTheme,
+  colors: {
+    ...DefaultTheme.colors,
+    primary: colors.primary,
+    background: 'transparent',
+    card: 'transparent',
+    text: colors.text,
+    border: 'transparent',
+    notification: colors.accent,
+  },
+};
 
 const TAB_SCALE = 0.75;
 /** 多选底部条：相对 TAB_SCALE 约 4/3（较「再放大 2 倍」版本缩为 2/3） */
@@ -50,7 +67,6 @@ function withFocusFade<P extends object>(
 
 /** 物品 / 计划 Tab：列表为主，略加长淡入更易感知 */
 const INVENTORY_PLANS_TAB_FADE_MS = 520;
-const Stack = createNativeStackNavigator<RootStackParamList>();
 
 const TAB_LABELS: Record<keyof MainTabParamList, string> = {
   HomeTab: '首页',
@@ -65,7 +81,8 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
 
   if (payload) {
     return (
-      <View
+      <GlassSurface
+        tint="surface"
         style={[
           styles.tabBarWrap,
           {
@@ -105,6 +122,18 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
                 <Ionicons name="folder-open-outline" size={24 * BULK_TAB_BAR_SCALE} color={colors.text} />
               </EasePressable>
             ) : null}
+            {payload.showCreate && payload.onCreate ? (
+              <EasePressable
+                onPress={payload.onCreate}
+                pressableStyle={styles.bulkTabIconBtn}
+                style={styles.bulkTabIconBtn}
+                shrink={0.88}
+                accessibilityRole="button"
+                accessibilityLabel="新建分组或位置"
+              >
+                <Ionicons name="add-circle-outline" size={24 * BULK_TAB_BAR_SCALE} color={colors.text} />
+              </EasePressable>
+            ) : null}
             <EasePressable
               onPress={payload.onDelete}
               pressableStyle={styles.bulkTabIconBtn}
@@ -117,12 +146,15 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
             </EasePressable>
           </View>
         </View>
-      </View>
+      </GlassSurface>
     );
   }
 
   return (
-    <View style={[styles.tabBarWrap, { paddingBottom: Math.max(insets.bottom, 10 * TAB_SCALE) }]}>
+    <GlassSurface
+      tint="surface"
+      style={[styles.tabBarWrap, { paddingBottom: Math.max(insets.bottom, 10 * TAB_SCALE) }]}
+    >
       <View style={styles.tabBarInner}>
         {state.routes.map((route, index) => {
           const isFocused = state.index === index;
@@ -165,7 +197,7 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
           );
         })}
       </View>
-    </View>
+    </GlassSurface>
   );
 }
 
@@ -176,6 +208,7 @@ function MainTabs() {
         tabBar={(props) => <CustomTabBar {...props} />}
         screenOptions={{
           headerShown: false,
+          sceneStyle: styles.transparentScene,
         }}
       >
         <Tab.Screen name="HomeTab" component={withFocusFade(HomeScreen)} />
@@ -192,52 +225,98 @@ function MainTabs() {
 
 export function AppNavigator() {
   return (
-    <NavigationContainer>
+    <NavigationContainer theme={navTheme}>
       <View style={styles.appRoot}>
-        <Stack.Navigator
-          screenOptions={{
-            headerShown: false,
-            animation: 'fade',
-            animationDuration: 340,
-            contentStyle: { backgroundColor: colors.bg },
-          }}
-        >
-          <Stack.Screen name="MainTabs" component={MainTabs} />
-          <Stack.Screen name="InventoryGroup" component={withFocusFade(InventoryGroupScreen)} />
-          <Stack.Screen name="ItemDetail" component={withFocusFade(ItemDetailScreen)} />
-          <Stack.Screen
-            name="AddItem"
-            component={withFocusFade(AddItemScreen)}
-            options={{
-              presentation: Platform.OS === 'ios' ? 'modal' : 'card',
-              animation: 'slide_from_bottom',
+        <AppAtmosphere />
+        <View style={styles.navLayer}>
+          <Stack.Navigator
+            screenOptions={{
+              headerShown: false,
+              animation: 'fade',
               animationDuration: 340,
+              contentStyle: styles.transparentScene,
             }}
-          />
-          <Stack.Screen
-            name="ScanEntry"
-            component={ScanEntryScreen}
-            options={{
-              presentation: 'transparentModal',
-              animation: 'fade',
-              contentStyle: { backgroundColor: 'transparent' },
-            }}
-          />
-          <Stack.Screen
-            name="LinkEntry"
-            component={LinkEntryScreen}
-            options={{
-              presentation: 'transparentModal',
-              animation: 'fade',
-              contentStyle: { backgroundColor: 'transparent' },
-            }}
-          />
-          <Stack.Screen name="AccountSettings" component={withFocusFade(StaticInfoScreen)} />
-          <Stack.Screen name="DataExport" component={withFocusFade(DataExportScreen)} />
-          <Stack.Screen name="About" component={withFocusFade(StaticInfoScreen)} />
-          <Stack.Screen name="Help" component={withFocusFade(StaticInfoScreen)} />
-          <Stack.Screen name="EditProfile" component={withFocusFade(EditProfileScreen)} />
-        </Stack.Navigator>
+          >
+            <Stack.Screen name="MainTabs" component={MainTabs} />
+            <Stack.Screen
+              name="InventoryGroup"
+              component={withFocusFade(InventoryGroupScreen)}
+              options={{ contentStyle: styles.formSheetScene }}
+            />
+            <Stack.Screen
+              name="ItemDetail"
+              component={withFocusFade(ItemDetailScreen)}
+              options={{ contentStyle: styles.formSheetScene }}
+            />
+            <Stack.Screen
+              name="AddItem"
+              component={withFocusFade(AddItemScreen)}
+              options={{
+                presentation: Platform.OS === 'ios' ? 'modal' : 'card',
+                animation: 'slide_from_bottom',
+                animationDuration: 340,
+                contentStyle: styles.formSheetScene,
+              }}
+            />
+            <Stack.Screen
+              name="ScanEntry"
+              component={ScanEntryScreen}
+              options={{
+                presentation: 'transparentModal',
+                animation: 'fade',
+                contentStyle: styles.transparentScene,
+              }}
+            />
+            <Stack.Screen
+              name="LinkEntry"
+              component={LinkEntryScreen}
+              options={{
+                presentation: 'transparentModal',
+                animation: 'fade',
+                contentStyle: styles.transparentScene,
+              }}
+            />
+            <Stack.Screen
+              name="AccountSettings"
+              component={withFocusFade(LegalTextScreen)}
+              options={{ contentStyle: styles.formSheetScene }}
+            />
+            <Stack.Screen
+              name="DataExport"
+              component={withFocusFade(DataExportScreen)}
+              options={{ contentStyle: styles.formSheetScene }}
+            />
+            <Stack.Screen
+              name="About"
+              component={withFocusFade(LegalTextScreen)}
+              options={{ contentStyle: styles.formSheetScene }}
+            />
+            <Stack.Screen
+              name="Help"
+              component={withFocusFade(LegalTextScreen)}
+              options={{ contentStyle: styles.formSheetScene }}
+            />
+            <Stack.Screen
+              name="PrivacyPolicy"
+              component={withFocusFade(LegalTextScreen)}
+              options={{ contentStyle: styles.formSheetScene }}
+            />
+            <Stack.Screen
+              name="EditProfile"
+              component={withFocusFade(EditProfileScreen)}
+              options={{ contentStyle: styles.formSheetScene }}
+            />
+            <Stack.Screen
+              name="AuthLogin"
+              component={AuthLoginScreen}
+              options={{
+                presentation: 'transparentModal',
+                animation: 'fade',
+                contentStyle: styles.transparentScene,
+              }}
+            />
+          </Stack.Navigator>
+        </View>
       </View>
     </NavigationContainer>
   );
@@ -246,11 +325,33 @@ export function AppNavigator() {
 const styles = StyleSheet.create({
   appRoot: {
     flex: 1,
+    backgroundColor: colors.bg,
+  },
+  navLayer: {
+    flex: 1,
+    zIndex: 1,
+    backgroundColor: 'transparent',
+  },
+  transparentScene: {
+    backgroundColor: 'transparent',
+  },
+  formSheetScene: {
+    /** 透明，由页面内 formSheetBg 略透盖住，才能透出大气底图 */
+    backgroundColor: 'transparent',
   },
   tabBarWrap: {
-    backgroundColor: colors.surface,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 20,
+    backgroundColor: 'transparent',
+    overflow: 'hidden',
+    shadowColor: '#1A2838',
+    shadowOffset: { width: 0, height: -6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    elevation: 12,
   },
   tabBarInner: {
     flexDirection: 'row',
@@ -276,11 +377,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   tabLabelInactive: {
-    color: colors.textMuted,
+    color: 'rgba(255, 255, 255, 0.72)',
     fontFamily: fonts.regular,
   },
   tabLabelActive: {
-    color: colors.primary,
+    color: colors.text,
     fontFamily: fonts.bold,
   },
   bulkTabRow: {

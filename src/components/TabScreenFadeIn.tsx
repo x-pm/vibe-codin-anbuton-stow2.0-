@@ -1,38 +1,62 @@
 import { useFocusEffect } from '@react-navigation/native';
-import React, { useCallback, useRef, type ReactNode } from 'react';
-import { Animated, Easing } from 'react-native';
+import React, { useCallback, useRef, useState, type ReactNode } from 'react';
+import { Animated, Easing, StyleSheet, View } from 'react-native';
 
 type Props = {
   children: ReactNode;
-  /** 渐显时长 (ms) */
+  /** 遮罩淡出时长 (ms)；不对内容做 opacity，以免打断毛玻璃 */
   duration?: number;
 };
 
 const easeOut = Easing.out(Easing.cubic);
 
 /**
- * 路由获得焦点时内容从透明淡入（Tab 切换、从 Stack 返回上一级等会触发 useFocusEffect）。
+ * 焦点进入时用「遮罩淡出」代替内容 opacity 渐显。
+ * 对子树设 opacity / needsOffscreenAlphaCompositing 会导致 BlurView 采不到底图、变成实心块。
  */
 export function TabScreenFadeIn({ children, duration = 380 }: Props) {
-  const opacity = useRef(new Animated.Value(1)).current;
+  const veil = useRef(new Animated.Value(0)).current;
+  const [veilMounted, setVeilMounted] = useState(true);
 
   useFocusEffect(
     useCallback(() => {
-      opacity.setValue(0);
-      const anim = Animated.timing(opacity, {
-        toValue: 1,
+      setVeilMounted(true);
+      veil.setValue(1);
+      const anim = Animated.timing(veil, {
+        toValue: 0,
         duration,
         easing: easeOut,
         useNativeDriver: true,
       });
-      anim.start();
-      return () => anim.stop();
-    }, [opacity, duration])
+      anim.start(({ finished }) => {
+        if (finished) setVeilMounted(false);
+      });
+      return () => {
+        anim.stop();
+        setVeilMounted(true);
+      };
+    }, [veil, duration])
   );
 
   return (
-    <Animated.View style={{ flex: 1, opacity }} needsOffscreenAlphaCompositing>
+    <View style={styles.root}>
       {children}
-    </Animated.View>
+      {veilMounted ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.veil, { opacity: veil }]}
+        />
+      ) : null}
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: 'transparent' },
+  /** 与兜底钢蓝接近，淡出时不闪白 */
+  veil: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#3A4A5A',
+    zIndex: 50,
+  },
+});

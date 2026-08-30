@@ -1,0 +1,14 @@
+{
+  "envId": "stow-app-d2gy83vihd1e932bb",
+  "functionRoot": "cloudfunctions",
+  "functions": [
+    {
+      "name": "stowSync",
+      "timeout": 30,
+      "runtime": "Nodejs18.15",
+      "handler": "index.main",
+      "installDependency": true,
+      "ignore": ["node_modules", ".git", "*.md"]
+    }
+  ]
+}

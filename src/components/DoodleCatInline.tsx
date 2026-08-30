@@ -1,178 +1,145 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
 import Svg, { Circle, G, Path } from 'react-native-svg';
+import { colors } from '../theme/colors';
 
-/** 与参考图一致的炭笔色线条 */
-const INK = '#333333';
-const STROKE = 4.2;
-const STROKE_SOFT = 3.2;
-
-const VIEW_W = 128;
-const VIEW_H = 132;
-
-/** 尾巴摆动支点（身尾相接处，viewBox 坐标） */
-const TAIL_PIVOT = { x: 38, y: 72 };
-/** 头部轻摆支点（脸中心偏上） */
-const HEAD_PIVOT = { x: 70, y: 48 };
+/** 与设计例图一致：白描猫头（尖耳 / 圆脸 / 三道胡须） */
+const STROKE = 3.2;
+const VIEW = 96;
 
 const AnimatedG = Animated.createAnimatedComponent(G);
 
 export type DoodleCatInlineProps = {
-  /** 渲染宽度（高度按 viewBox 比例） */
+  /** 渲染边长 */
   size?: number;
 };
 
 /**
- * 手绘小猫：头、尾微动；固定占位，不可拖动；用于标题行右侧装饰。
+ * 标题行右侧装饰猫头：白描线稿，与毛玻璃首页例图一致。
  */
-export function DoodleCatInline({ size = 52 }: DoodleCatInlineProps) {
-  const tailPhase = useRef(new Animated.Value(0)).current;
-  const headPhase = useRef(new Animated.Value(0)).current;
+export function DoodleCatInline({ size = 48 }: DoodleCatInlineProps) {
+  const blink = useRef(new Animated.Value(1)).current;
+  const sway = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const tailLoop = Animated.loop(
+    const blinkLoop = Animated.loop(
       Animated.sequence([
-        Animated.timing(tailPhase, {
+        Animated.delay(2200),
+        Animated.timing(blink, {
+          toValue: 0.15,
+          duration: 90,
+          easing: Easing.linear,
+          useNativeDriver: false,
+        }),
+        Animated.timing(blink, {
           toValue: 1,
-          duration: 520,
+          duration: 120,
+          easing: Easing.linear,
+          useNativeDriver: false,
+        }),
+        Animated.delay(1600),
+      ])
+    );
+    const swayLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(sway, {
+          toValue: 1,
+          duration: 1800,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: false,
         }),
-        Animated.timing(tailPhase, {
+        Animated.timing(sway, {
           toValue: -1,
-          duration: 520,
+          duration: 1800,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: false,
         }),
       ])
     );
-    const headLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(headPhase, {
-          toValue: 1,
-          duration: 2400,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: false,
-        }),
-        Animated.timing(headPhase, {
-          toValue: -1,
-          duration: 2400,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: false,
-        }),
-      ])
-    );
-    tailLoop.start();
-    headLoop.start();
+    blinkLoop.start();
+    swayLoop.start();
     return () => {
-      tailLoop.stop();
-      headLoop.stop();
+      blinkLoop.stop();
+      swayLoop.stop();
     };
-  }, [tailPhase, headPhase]);
+  }, [blink, sway]);
 
-  const tailRotate = tailPhase.interpolate({
+  const rotate = sway.interpolate({
     inputRange: [-1, 1],
-    outputRange: ['-14deg', '14deg'],
+    outputRange: ['-4deg', '4deg'],
   });
 
-  const headRotate = headPhase.interpolate({
-    inputRange: [-1, 1],
-    outputRange: ['-5deg', '5deg'],
-  });
-
-  const w = size;
-  const h = (size * VIEW_H) / VIEW_W;
+  const ink = colors.text;
 
   return (
     <View
-      style={[styles.wrap, { width: w, height: h }]}
+      style={[styles.wrap, { width: size, height: size }]}
       pointerEvents="none"
-      accessibilityLabel="手绘小猫"
+      accessibilityLabel="猫头装饰"
       accessibilityRole="image"
     >
-      <Svg width={w} height={h} viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}>
-        <Path
-          d="M24 20v9 M19.5 24.5h9 M40 11v7 M36.5 14.5h7"
-          stroke={INK}
-          strokeWidth={STROKE_SOFT}
-          strokeLinecap="round"
-        />
-        <AnimatedG
-          transform={[
-            { translateX: TAIL_PIVOT.x },
-            { translateY: TAIL_PIVOT.y },
-            { rotate: tailRotate },
-            { translateX: -TAIL_PIVOT.x },
-            { translateY: -TAIL_PIVOT.y },
-          ]}
-        >
+      <Animated.View style={{ transform: [{ rotate }] }}>
+        <Svg width={size} height={size} viewBox={`0 0 ${VIEW} ${VIEW}`}>
+          {/* 左耳 */}
           <Path
-            d="M36 78 C12 76 4 52 16 38 C22 32 34 44 38 60"
-            stroke={INK}
+            d="M28 42 L18 14 L42 30"
+            stroke={ink}
             strokeWidth={STROKE}
             fill="none"
             strokeLinecap="round"
             strokeLinejoin="round"
           />
-        </AnimatedG>
-        <Path
-          d="M46 42
-                   C38 54 34 72 38 90
-                   C36 102 44 114 52 116
-                   Q58 120 64 114
-                   Q70 120 76 114
-                   Q86 116 90 100
-                   C96 82 92 58 80 44
-                   C72 34 58 32 46 42"
-          stroke={INK}
-          strokeWidth={STROKE}
-          fill="none"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <AnimatedG
-          transform={[
-            { translateX: HEAD_PIVOT.x },
-            { translateY: HEAD_PIVOT.y },
-            { rotate: headRotate },
-            { translateX: -HEAD_PIVOT.x },
-            { translateY: -HEAD_PIVOT.y },
-          ]}
-        >
+          {/* 右耳 */}
           <Path
-            d="M52 34 Q46 16 58 26"
-            stroke={INK}
+            d="M68 42 L78 14 L54 30"
+            stroke={ink}
             strokeWidth={STROKE}
             fill="none"
             strokeLinecap="round"
             strokeLinejoin="round"
           />
+          {/* 脸轮廓 */}
           <Path
-            d="M76 26 Q88 14 94 32"
-            stroke={INK}
+            d="M28 42
+               C22 58 28 78 48 82
+               C68 78 74 58 68 42
+               C62 30 34 30 28 42 Z"
+            stroke={ink}
             strokeWidth={STROKE}
             fill="none"
             strokeLinecap="round"
             strokeLinejoin="round"
           />
+          {/* 左胡须 */}
           <Path
-            d="M54 52 L44 52 M54 60 L44 60"
-            stroke={INK}
-            strokeWidth={STROKE_SOFT}
+            d="M34 54 H14 M34 60 H12 M34 66 H16"
+            stroke={ink}
+            strokeWidth={STROKE * 0.85}
             strokeLinecap="round"
           />
-          <Circle cx={62} cy={46} r={3.6} fill={INK} />
-          <Circle cx={78} cy={46} r={3.6} fill={INK} />
+          {/* 右胡须 */}
           <Path
-            d="M64 54 Q67 58 70 54 Q73 58 76 54"
-            stroke={INK}
-            strokeWidth={STROKE_SOFT}
+            d="M62 54 H82 M62 60 H84 M62 66 H80"
+            stroke={ink}
+            strokeWidth={STROKE * 0.85}
+            strokeLinecap="round"
+          />
+          {/* 眼睛（眨眼） */}
+          <AnimatedG opacity={blink}>
+            <Circle cx={38} cy={52} r={3.2} fill={ink} />
+            <Circle cx={58} cy={52} r={3.2} fill={ink} />
+          </AnimatedG>
+          {/* 口鼻 w */}
+          <Path
+            d="M44 62 Q48 68 52 62"
+            stroke={ink}
+            strokeWidth={STROKE * 0.9}
             fill="none"
             strokeLinecap="round"
             strokeLinejoin="round"
           />
-        </AnimatedG>
-      </Svg>
+        </Svg>
+      </Animated.View>
     </View>
   );
 }
@@ -180,5 +147,7 @@ export function DoodleCatInline({ size = 52 }: DoodleCatInlineProps) {
 const styles = StyleSheet.create({
   wrap: {
     flexShrink: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

@@ -30,14 +30,9 @@ export type ItemPlan = {
   completed?: boolean;
   /** 创建时间戳（ms），无日期排序时按此升序 */
   createdAt?: number;
-  /**
-   * 与「提醒时间」一致：要提醒的本地时间戳（ms）。
-   * 未设则无系统日历、卡片也不展示提醒行。
-   */
+  /** 旧数据兼容：曾用于系统日历提醒，现已不再写入 */
   reminderAt?: number;
-  /**
-   * `expo-calendar` 在系统默认日历中创建的事件 id；完成/删除待办时用于从日历移除。
-   */
+  /** 旧数据兼容：曾用于系统日历事件 id */
   externalCalendarEventId?: string;
 };
 

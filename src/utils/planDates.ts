@@ -18,12 +18,31 @@ export function parseISODate(s: string): Date | null {
   return d;
 }
 
-/** 将提醒时间格式化为 `M月D日 HH:MM`（与本地时区一致） */
-export function formatPlanReminderAt(ms: number): string {
-  const d = new Date(ms);
-  return `${d.getMonth() + 1}月${d.getDate()}日 ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+function formatLocalDay(d: Date): string {
+  const nowY = new Date().getFullYear();
+  if (d.getFullYear() === nowY) return `${d.getMonth() + 1}月${d.getDate()}日`;
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
 }
 
-export function formatTimeOnly(d: Date): string {
-  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+/** 计划卡片日期：预计时间 footer，或旧 reminderAt */
+export function formatPlanCardDate(plan: {
+  footer?: string;
+  reminderAt?: number;
+}): string | null {
+  const raw = plan.footer?.trim() ?? '';
+  if (raw) {
+    const iso = parseISODate(raw);
+    if (iso) return formatLocalDay(iso);
+    const slash = /^(\d{4})[/.](\d{1,2})[/.](\d{1,2})$/.exec(raw);
+    if (slash) {
+      const d = new Date(+slash[1], +slash[2] - 1, +slash[3]);
+      if (!Number.isNaN(d.getTime())) return formatLocalDay(d);
+    }
+    return raw;
+  }
+  if (typeof plan.reminderAt === 'number' && plan.reminderAt > 0) {
+    const r = new Date(plan.reminderAt);
+    return formatLocalDay(new Date(r.getFullYear(), r.getMonth(), r.getDate()));
+  }
+  return null;
 }
